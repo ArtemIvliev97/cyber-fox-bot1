@@ -20,9 +20,12 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 
-# Лимит генераций (из переменной окружения, 0 = безлимит)
+# Лимит генераций (0 = безлимит)
 GENERATION_LIMIT = int(os.getenv("GENERATION_LIMIT", "0") or "0")
-remaining_generations = GENERATION_LIMIT   # временный счётчик (сбрасывается при перезапуске)
+remaining_generations = GENERATION_LIMIT
+
+# Включить живое общение? (True/False)
+CHAT_ENABLED = os.getenv("CHAT_ENABLED", "True").lower() == "true"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,6 +47,12 @@ FILM_PROMPTS = {
 
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
 BASE_PROMPT = "Проанализируй фото с точки зрения колористики и экспозиции. Расскажи, как обработать под стиль {style_info}. Сгенерируй пресет Lightroom в ```xml ... ```."
+
+CHAT_PROMPT = (
+    "Ты — Ари, игривая кибер-лисичка, которая любит фотографию и уют. "
+    "Отвечай коротко (1-3 предложения), тепло, с эмодзи (🦊, 📸, ✨). "
+    "Пользователь просто хочет поболтать. Будь милой и остроумной."
+)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -77,6 +86,43 @@ def get_qa_keyboard():
         [InlineKeyboardButton(text="👤 Не вижу лицо", callback_data="qa_face"),
          InlineKeyboardButton(text="🛑 Завершить разбор Ари", callback_data="qa_done")]
     ])
+
+# ---------- Функция запроса к YandexGPT для чата ----------
+async def ask_ari(question: str) -> str:
+    """Отправляет вопрос в YandexGPT и возвращает ответ Ари."""
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.7,
+            "maxTokens": "500"
+        },
+        "messages": [
+            {"role": "system", "text": CHAT_PROMPT},
+            {"role": "user", "text": question}
+        ]
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                headers=headers,
+                json=body,
+                timeout=30.0
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data["result"]["alternatives"][0]["message"]["text"]
+        else:
+            logger.error(f"Chat API error: {resp.status_code}")
+            return "🦊 Что-то я запуталась... Давай попробуем ещё раз?"
+    except Exception as e:
+        logger.error(f"Chat request failed: {e}")
+        return "🦊 Ой, кажется, у меня хвост запутался в проводах. Повтори позже!"
 
 # ---------- Системные команды ----------
 @dp.message(CommandStart())
@@ -138,7 +184,6 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext):
-    """Показывает главное меню в любой момент."""
     await message.answer("🦊 Главное меню Ари:", reply_markup=get_main_menu_keyboard())
 
 # ---------- Главное меню (callback'и) ----------
@@ -191,7 +236,7 @@ async def handle_photo(message: Message, state: FSMContext):
     await state.update_data(photo_id=photo_id)
     await state.set_state(PhotoStates.waiting_for_style)
 
-    # Проверка размера файла (минимальный порог 5 КБ)
+    # Проверка размера файла
     try:
         file_info = await bot.get_file(photo_id)
         file_size_kb = file_info.file_size / 1024
@@ -204,7 +249,7 @@ async def handle_photo(message: Message, state: FSMContext):
             await state.set_state(PhotoStates.waiting_for_photo)
             return
     except Exception:
-        pass  # если не удалось получить размер, пропускаем
+        pass
 
     await message.answer(
         "Хмм, сканирую взглядом... 👀 Дай мне пару сек, подкручу настройки магии!",
@@ -258,7 +303,6 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        # Запрос в YandexGPT
         headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
         body = {
             "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
@@ -276,14 +320,12 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
             await state.set_state(PhotoStates.waiting_for_photo)
             return
 
-        # Уменьшаем счётчик генераций
         if GENERATION_LIMIT > 0:
             remaining_generations -= 1
 
         result = ai_resp.json()
         ai_text = result["result"]["alternatives"][0]["message"]["text"]
 
-        # Ищем XML пресет
         xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
         if xml_match:
             xml_content = xml_match.group(1).strip()
@@ -333,14 +375,35 @@ async def process_qa(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Что ещё разберём?", reply_markup=get_qa_keyboard())
     await callback.answer()
 
-# ---------- Заглушка для текста (не фото и не команда) ----------
-@dp.message(PhotoStates.waiting_for_photo)
+# ---------- Живые ответы Ари (смешанный режим) ----------
+# 1. В состоянии ожидания фото
+@dp.message(PhotoStates.waiting_for_photo, F.text & ~F.text.startswith("/"))
+async def chat_waiting_for_photo(message: Message, state: FSMContext):
+    if not CHAT_ENABLED:
+        await message.answer("Ой, мой объектив такое не распознает! Пожалуйста, скорми мне красивую картинку, а не эти скучные буковки. 🦊 Наведи фокус!")
+        return
+    await bot.send_chat_action(message.chat.id, "typing")
+    answer = await ask_ari(message.text)
+    await message.answer(answer)
+
+# 2. Вне состояний (глобальный чат)
+@dp.message(F.text & ~F.text.startswith("/"))
+async def global_chat(message: Message):
+    if not CHAT_ENABLED:
+        return  # просто игнорируем, если чат выключен
+    # Проверяем, что не находимся в других состояниях
+    current_state = await dp.storage.get_state(message.from_user.id)
+    if current_state is not None:
+        return  # не обрабатываем, чтобы не сломать сценарии (стиль, qa)
+    await bot.send_chat_action(message.chat.id, "typing")
+    answer = await ask_ari(message.text)
+    await message.answer(answer)
+
+# ---------- Заглушка для текста в других состояниях (стиль, qa) ----------
 @dp.message(PhotoStates.waiting_for_style)
 @dp.message(PhotoStates.waiting_for_qa)
-async def handle_text_fallback(message: Message):
-    await message.answer(
-        "Ой, мой объектив такое не распознает! Пожалуйста, скорми мне красивую картинку, а не эти скучные буковки. 🦊 Наведи фокус!"
-    )
+async def text_in_busy_state(message: Message):
+    await message.answer("Ой, мой объектив такое не распознает! Пожалуйста, скорми мне красивую картинку, а не эти скучные буковки. 🦊 Наведи фокус!")
 
 # ---------- FastAPI для вебхука ----------
 @asynccontextmanager
