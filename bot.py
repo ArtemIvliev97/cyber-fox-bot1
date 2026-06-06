@@ -14,9 +14,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from fastapi import FastAPI, Request, Response
 
 # ---------- Переменные окружения (задашь в Render) ----------
-TOKEN = os.getenv("8638541424:AAEFx4yq1Fj35jEqp9JMtqDohRK5oCs1DrU")
-YANDEX_API_KEY = os.getenv("AQVNxaJnocknSYhkyQalpieVUO6XQfkwfb3LEdfN")
-YANDEX_FOLDER_ID = os.getenv("b1gsia4ac1iosglbb8hc")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 # Render автоматически предоставляет этот URL
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
