@@ -169,11 +169,14 @@ async def fallback(message: Message):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url)
-    logger.info(f"Webhook установлен на {webhook_url}")
+    try:
+        await bot.set_webhook(webhook_url)
+        logger.info(f"Webhook установлен на {webhook_url}")
+    except Exception as e:
+        logger.error(f"Не удалось установить вебхук: {e}")
     yield
     await bot.session.close()
-
+    
 app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
