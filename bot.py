@@ -46,7 +46,16 @@ FILM_PROMPTS = {
 }
 
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
-BASE_PROMPT = "Проанализируй фото с точки зрения колористики и экспозиции. Расскажи, как обработать под стиль {style_info}. Сгенерируй пресет Lightroom в ```xml ... ```."
+BASE_PROMPT = (
+    "Посмотри на фото своим хитрым лисьим взглядом. "
+    "Проанализируй его с точки зрения колористики и экспозиции. "
+    "Расскажи в игривом стиле Ари, как обработать её под стиль {style_info}.\n"
+    "Сгенерируй МИНИМАЛЬНЫЙ XMP-пресет для Lightroom внутри тегов ```xml ... ```.\n"
+    "ВАЖНО: Пиши в XML только те параметры CRS, которые ты РЕАЛЬНО меняешь для цветокоррекции "
+    "(например: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint). "
+    "Игнорируй и НЕ создавай пустые теги метаданных, информацию о камере, истории изменений и авторских правах. "
+    "Твой XML-код должен быть максимально коротким и содержать только базовые настройки цвета!"
+)
 
 CHAT_PROMPT = (
     "Ты — Ари, игривая кибер-лисичка, которая любит фотографию и уют. "
@@ -376,7 +385,6 @@ async def process_qa(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # ---------- Живые ответы Ари (смешанный режим) ----------
-# 1. В состоянии ожидания фото
 @dp.message(PhotoStates.waiting_for_photo, F.text & ~F.text.startswith("/"))
 async def chat_waiting_for_photo(message: Message, state: FSMContext):
     if not CHAT_ENABLED:
@@ -386,20 +394,18 @@ async def chat_waiting_for_photo(message: Message, state: FSMContext):
     answer = await ask_ari(message.text)
     await message.answer(answer)
 
-# 2. Вне состояний (глобальный чат)
 @dp.message(F.text & ~F.text.startswith("/"))
 async def global_chat(message: Message):
     if not CHAT_ENABLED:
-        return  # просто игнорируем, если чат выключен
-    # Проверяем, что не находимся в других состояниях
+        return
     current_state = await dp.storage.get_state(message.from_user.id)
     if current_state is not None:
-        return  # не обрабатываем, чтобы не сломать сценарии (стиль, qa)
+        return
     await bot.send_chat_action(message.chat.id, "typing")
     answer = await ask_ari(message.text)
     await message.answer(answer)
 
-# ---------- Заглушка для текста в других состояниях (стиль, qa) ----------
+# ---------- Заглушка для текста в других состояниях ----------
 @dp.message(PhotoStates.waiting_for_style)
 @dp.message(PhotoStates.waiting_for_qa)
 async def text_in_busy_state(message: Message):
