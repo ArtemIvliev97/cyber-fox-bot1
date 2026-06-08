@@ -35,7 +35,7 @@ class PhotoStates(StatesGroup):
     waiting_for_style = State()
     waiting_for_qa = State()
 
-# Расширенный словарь стилей плёнки
+# Стили плёнок (Ilford удалён, добавлен Hasselblad)
 FILM_PROMPTS = {
     # Kodak
     "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
@@ -50,17 +50,32 @@ FILM_PROMPTS = {
     "style_fuji_astia": "Fuji Astia 100 (мягкие пастельные тона, идеально для портретов, низкий контраст)",
     # Cinestill
     "style_cinestill": "Cinestill 800T (кинематографичный холодный оттенок, неоновые ореолы, киберпанк)",
-    # Ч/Б плёнки
-    "style_ilford_hp5": "Ilford HP5 Plus 400 (насыщенные ч/б тона, умеренное зерно, богатые тени)",
-    "style_ilford_delta": "Ilford Delta 3200 (экстремальное зерно, высокая светочувствительность, драматичный стиль)",
+    # Hasselblad (добавлен)
+    "style_hasselblad": "Hasselblad HNCS (натуральные благородные цвета среднего формата, мягкий спад контраста, дорогой студийный визуал)",
     # Креативные
     "style_lomo_redscale": "Lomography Redscale (смещение в красно-оранжевую гамму, эффект засветки)",
     "style_agfa_vista": "Agfa Vista 200 (тёплые, слегка пыльные тона, ретро-стиль 80-х)",
 }
 
+# Иконки для каждого стиля (уникальные эмодзи)
+STYLE_ICONS = {
+    "style_kodak_portra": "🎞️",
+    "style_kodak_gold": "✨",
+    "style_kodak_ektar": "🌟",
+    "style_kodak_trix": "🖤",
+    "style_kodak_vision": "🎥",
+    "style_fuji_superia": "🌲",
+    "style_fuji_velvia": "🌈",
+    "style_fuji_provia": "🌅",
+    "style_fuji_astia": "🌸",
+    "style_cinestill": "🌃",
+    "style_hasselblad": "💎",
+    "style_lomo_redscale": "🔴",
+    "style_agfa_vista": "📷",
+}
+
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
 
-# Усиленный промпт для первого анализа (теперь требует максимум деталей)
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
     "Разбери его по пунктам и обязательно укажи:\n"
@@ -75,18 +90,18 @@ ANALYSIS_PROMPT = (
     "Не предлагай пресеты, только анализ и рекомендации."
 )
 
-# Промпт для генерации пресета (подробные параметры цвета и света)
+# Обновлённый промпт для генерации пресета (совместимость с Lightroom Mobile)
 BASE_PROMPT = (
     "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
-    "Сгенерируй XMP-пресет для Lightroom внутри тегов ```xml ... ```.\n"
+    "Сгенерируй XMP-пресет для Lightroom (включая Mobile) внутри тегов ```xml ... ```.\n"
     "Пресет должен содержать ТОЛЬКО следующие параметры цветокоррекции и света (если они нужны):\n"
     "Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, "
-    "Vibrance, Saturation, Clarity, а также ToneCurve (если требуется).\n"
+    "Vibrance, Saturation, Clarity, а также простой ToneCurve (Point Curve), если без него не обойтись.\n"
     "Не включай метаданные камеры, историю, авторские права, пустые теги. "
-    "XML должен быть компактным, но давать полное представление о цвете и свете."
+    "XML должен быть компактным, но полностью передавать задуманный цвет и свет. "
+    "Убедись, что пресет корректно импортируется в Lightroom Mobile."
 )
 
-# Живой разговорный промпт
 CHAT_PROMPT = (
     "Ты — Ари, живая кибер-лисичка с характером. Ты любишь фотографию, уют, камеры, "
     "и обожаешь болтать с фотографами. Будь эмоциональной, остроумной, иногда дерзкой, "
@@ -100,7 +115,6 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # ---------- Клавиатуры ----------
 def get_main_menu_keyboard():
-    """Главное меню с основными функциями."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Навести фокус", callback_data="main_focus")],
         [InlineKeyboardButton(text="✨ Магия ИИ-фильтров", callback_data="main_magic")],
@@ -110,19 +124,18 @@ def get_main_menu_keyboard():
     ])
 
 def get_style_keyboard():
-    """Динамическая клавиатура со всеми плёночными стилями."""
+    """Динамическая клавиатура стилей с иконками."""
     buttons = []
     for style_id, description in FILM_PROMPTS.items():
-        # Красивое имя: style_kodak_portra -> Kodak Portra
+        icon = STYLE_ICONS.get(style_id, "🎞️")
         name_parts = style_id.replace("style_", "").split("_")
         display_name = " ".join(part.capitalize() for part in name_parts)
-        buttons.append(InlineKeyboardButton(text=display_name, callback_data=style_id))
-    # Группируем по 2 кнопки в ряд
+        label = f"{icon} {display_name}"
+        buttons.append(InlineKeyboardButton(text=label, callback_data=style_id))
     keyboard_rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
     return InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
 def get_qa_keyboard():
-    """Клавиатура с вопросами после обработки."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌡️ Ошибки Баланса Белого", callback_data="qa_wb"),
          InlineKeyboardButton(text="⛅ Как спасти пересветы?", callback_data="qa_sky")],
@@ -133,7 +146,6 @@ def get_qa_keyboard():
     ])
 
 def get_style_choice_keyboard():
-    """Клавиатура выбора: применить стиль или пропустить."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎞️ Выбрать плёночный стиль", callback_data="choose_style"),
          InlineKeyboardButton(text="🚫 Пропустить", callback_data="skip_style")]
@@ -176,7 +188,6 @@ async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float =
         return "🦊 Хвост запутался в проводах! Повтори попытку позже."
 
 async def ask_ari(question: str) -> str:
-    """Живое общение – всегда через YandexGPT."""
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
         "Content-Type": "application/json"
@@ -225,7 +236,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
-    """Игривый ответ на вопрос 'Что ты умеешь?'"""
     await message.answer(
         "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\n"
         "Могу проанализировать твоё фото, найти ошибки и рассказать, как их исправить.\n"
@@ -333,7 +343,6 @@ async def handle_photo(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
     await state.update_data(photo_id=photo_id)
 
-    # Проверка размера
     try:
         file_info = await bot.get_file(photo_id)
         file_size_kb = file_info.file_size / 1024
@@ -359,7 +368,6 @@ async def handle_photo(message: Message, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        # Усиленный анализ
         analysis_text = await ask_yandex(ANALYSIS_PROMPT, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
@@ -428,7 +436,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
                 await callback.message.answer(clean_text)
             preset_file = BufferedInputFile(xml_content.encode(), filename=f"{chosen}.xmp")
             await callback.message.answer_document(
-                preset_file, caption="🦊 Твой подробный пресет по цвету и свету!"
+                preset_file, caption="🦊 Твой пресет для Lightroom (включая Mobile)!"
             )
         else:
             await callback.message.answer(ai_text)
@@ -482,7 +490,6 @@ async def chat_waiting_for_photo(message: Message, state: FSMContext):
     reply = await ask_ari(message.text)
     await message.answer(reply)
 
-# Глобальный чат (вне состояний) – в том числе обрабатывает фразу «что ты умеешь»
 @dp.message(F.text & ~F.text.startswith("/"))
 async def global_chat(message: Message):
     if not CHAT_ENABLED:
@@ -491,7 +498,6 @@ async def global_chat(message: Message):
     if current_state is not None:
         return
 
-    # Если пользователь спрашивает «что ты умеешь», покажем меню
     if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что ты можешь", "что можешь"]):
         await message.answer(
             "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\n"
