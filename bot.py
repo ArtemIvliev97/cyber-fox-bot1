@@ -31,32 +31,51 @@ logger = logging.getLogger(__name__)
 
 # ---------- Состояния ----------
 class PhotoStates(StatesGroup):
-    waiting_for_photo = State()          # ждём фото
-    waiting_for_style = State()          # выбор стиля после анализа
-    waiting_for_qa = State()             # вопросы после пресета
+    waiting_for_photo = State()
+    waiting_for_style = State()
+    waiting_for_qa = State()
 
+# Расширенный словарь стилей плёнки
 FILM_PROMPTS = {
-    "style_kodak_portra": "Kodak Portra 400 (Теплые тона кожи, мягкий контраст, золотистые оттенки).",
-    "style_fuji_superia": "Fuji Superia 400 (Насыщенные зеленые и холодные тона, лесные прогулки).",
-    "style_kodak_trix": "Kodak Tri-X 400 (Ч/Б стиль, драматичный контраст, зерно).",
-    "style_fuji_velvia": "Fuji Velvia (Экстремальная насыщенность, сочные цвета).",
-    "style_cinestill": "Cinestill 800T (Кинематографичный холод, неоновые ореолы).",
-    "style_hasselblad": "Hasselblad HNCS (Натуральные цвета среднего формата, студийный визуал)."
+    # Kodak
+    "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
+    "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
+    "style_kodak_ektar": "Kodak Ektar 100 (высокая насыщенность, резкость, яркие цвета)",
+    "style_kodak_trix": "Kodak Tri-X 400 (классический ч/б стиль, глубокие тени, выраженное зерно)",
+    "style_kodak_vision": "Kodak Vision3 250D (кинематографичный стиль, мягкий контраст, естественные тона)",
+    # Fuji
+    "style_fuji_superia": "Fuji Superia 400 (насыщенные зелёные и холодные тона, отличный баланс в тенях)",
+    "style_fuji_velvia": "Fuji Velvia 50 (экстремальная насыщенность, сочные цвета, высокая резкость)",
+    "style_fuji_provia": "Fuji Provia 100 (естественные цвета, умеренный контраст, гладкая цветопередача)",
+    "style_fuji_astia": "Fuji Astia 100 (мягкие пастельные тона, идеально для портретов, низкий контраст)",
+    # Cinestill
+    "style_cinestill": "Cinestill 800T (кинематографичный холодный оттенок, неоновые ореолы, киберпанк)",
+    # Ч/Б плёнки
+    "style_ilford_hp5": "Ilford HP5 Plus 400 (насыщенные ч/б тона, умеренное зерно, богатые тени)",
+    "style_ilford_delta": "Ilford Delta 3200 (экстремальное зерно, высокая светочувствительность, драматичный стиль)",
+    # Креативные
+    "style_lomo_redscale": "Lomography Redscale (смещение в красно-оранжевую гамму, эффект засветки)",
+    "style_agfa_vista": "Agfa Vista 200 (тёплые, слегка пыльные тона, ретро-стиль 80-х)",
 }
 
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
 
-# Новый промпт для первого анализа (без стиля)
+# Усиленный промпт для первого анализа (теперь требует максимум деталей)
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
-    "Перечисли основные технические и композиционные ошибки: смазанность, завал горизонта, плохой свет, "
-    "неудачное кадрирование, шумы, проблемы с экспозицией. "
-    "Дай краткие, но полезные советы, как исправить каждую ошибку. "
+    "Разбери его по пунктам и обязательно укажи:\n"
+    "- Какие ошибки в экспозиции (пересветы, недосветы, общая яркость).\n"
+    "- Проблемы с цветом и балансом белого (слишком тепло, холодно, неестественные оттенки).\n"
+    "- Композиция: правило третей, захламлённость, главный объект.\n"
+    "- Резкость и фокус: есть ли смазы, где именно.\n"
+    "- Шумы и артефакты.\n"
+    "- Что можно улучшить или добавить в кадр, чтобы он стал выразительнее.\n"
+    "Для каждой проблемы дай конкретный, понятный совет по исправлению. "
     "Пиши в игривом стиле Ари, с эмодзи 🦊, 📸, ✨. "
-    "Не предлагай пресеты, только анализ."
+    "Не предлагай пресеты, только анализ и рекомендации."
 )
 
-# Обновлённый промпт для генерации пресета (более подробный XML по цвету и свету)
+# Промпт для генерации пресета (подробные параметры цвета и света)
 BASE_PROMPT = (
     "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
     "Сгенерируй XMP-пресет для Lightroom внутри тегов ```xml ... ```.\n"
@@ -67,7 +86,7 @@ BASE_PROMPT = (
     "XML должен быть компактным, но давать полное представление о цвете и свете."
 )
 
-# Улучшенный разговорный промпт (максимально живой)
+# Живой разговорный промпт
 CHAT_PROMPT = (
     "Ты — Ари, живая кибер-лисичка с характером. Ты любишь фотографию, уют, камеры, "
     "и обожаешь болтать с фотографами. Будь эмоциональной, остроумной, иногда дерзкой, "
@@ -81,6 +100,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # ---------- Клавиатуры ----------
 def get_main_menu_keyboard():
+    """Главное меню с основными функциями."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Навести фокус", callback_data="main_focus")],
         [InlineKeyboardButton(text="✨ Магия ИИ-фильтров", callback_data="main_magic")],
@@ -90,16 +110,19 @@ def get_main_menu_keyboard():
     ])
 
 def get_style_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎞️ Kodak Portra 400", callback_data="style_kodak_portra"),
-         InlineKeyboardButton(text="🌲 Fuji Superia 400", callback_data="style_fuji_superia")],
-        [InlineKeyboardButton(text="🕶️ Kodak Tri-X 400", callback_data="style_kodak_trix"),
-         InlineKeyboardButton(text="🌈 Fuji Velvia", callback_data="style_fuji_velvia")],
-        [InlineKeyboardButton(text="🦊 Кибер-Лиса (Cinestill)", callback_data="style_cinestill"),
-         InlineKeyboardButton(text="💎 Hasselblad", callback_data="style_hasselblad")]
-    ])
+    """Динамическая клавиатура со всеми плёночными стилями."""
+    buttons = []
+    for style_id, description in FILM_PROMPTS.items():
+        # Красивое имя: style_kodak_portra -> Kodak Portra
+        name_parts = style_id.replace("style_", "").split("_")
+        display_name = " ".join(part.capitalize() for part in name_parts)
+        buttons.append(InlineKeyboardButton(text=display_name, callback_data=style_id))
+    # Группируем по 2 кнопки в ряд
+    keyboard_rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
 def get_qa_keyboard():
+    """Клавиатура с вопросами после обработки."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌡️ Ошибки Баланса Белого", callback_data="qa_wb"),
          InlineKeyboardButton(text="⛅ Как спасти пересветы?", callback_data="qa_sky")],
@@ -109,14 +132,14 @@ def get_qa_keyboard():
          InlineKeyboardButton(text="🛑 Завершить разбор Ари", callback_data="qa_done")]
     ])
 
-# Клавиатура после анализа (выбор – применить стиль или нет)
 def get_style_choice_keyboard():
+    """Клавиатура выбора: применить стиль или пропустить."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎞️ Выбрать плёночный стиль", callback_data="choose_style"),
          InlineKeyboardButton(text="🚫 Пропустить", callback_data="skip_style")]
     ])
 
-# ---------- Запрос к YandexGPT ----------
+# ---------- Запросы к YandexGPT ----------
 async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
@@ -162,7 +185,7 @@ async def ask_ari(question: str) -> str:
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
         "completionOptions": {
             "stream": False,
-            "temperature": 0.8,   # больше креативности в разговоре
+            "temperature": 0.8,
             "maxTokens": "500"
         },
         "messages": [
@@ -188,7 +211,7 @@ async def ask_ari(question: str) -> str:
         logger.error(f"Chat request failed: {e}")
         return "🦊 Ой, кажется, у меня хвост запутался в проводах. Повтори позже!"
 
-# ---------- Системные команды ----------
+# ---------- Обработчики команд ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -197,6 +220,18 @@ async def cmd_start(message: Message, state: FSMContext):
         "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ "
         "Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. "
         "Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
+        reply_markup=get_main_menu_keyboard()
+    )
+
+@dp.message(Command("what"))
+async def cmd_what(message: Message, state: FSMContext):
+    """Игривый ответ на вопрос 'Что ты умеешь?'"""
+    await message.answer(
+        "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\n"
+        "Могу проанализировать твоё фото, найти ошибки и рассказать, как их исправить.\n"
+        "Знаю кучу плёночных стилей и умею создавать пресеты для Lightroom.\n"
+        "Ещё я просто обожаю болтать о фотографии — так что давай на «ты» с камерой! 😉\n\n"
+        "Вот что ты можешь попросить меня сделать прямо сейчас:",
         reply_markup=get_main_menu_keyboard()
     )
 
@@ -261,7 +296,6 @@ async def main_focus(callback: CallbackQuery, state: FSMContext):
 async def main_magic(callback: CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
     if current_state == PhotoStates.waiting_for_style:
-        # Уже есть фото и сделан анализ – показываем стили
         await callback.message.edit_text(
             "✨ Выбери стиль плёнки, и я создам пресет.",
             reply_markup=get_style_keyboard()
@@ -293,7 +327,7 @@ async def main_energy(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ---------- Обработка фото (новый поток) ----------
+# ---------- Обработка фото (усиленный анализ) ----------
 @dp.message(PhotoStates.waiting_for_photo, F.photo)
 async def handle_photo(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
@@ -313,12 +347,10 @@ async def handle_photo(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    # Сразу запускаем анализ
     await message.answer("🦊 Хмм, сканирую взглядом... Дай мне пару сек, подкручу настройки магии! 👀")
     await bot.send_chat_action(message.chat.id, "typing")
 
     try:
-        # Скачиваем фото
         file_info = await bot.get_file(photo_id)
         file_path = file_info.file_path
         download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
@@ -327,14 +359,11 @@ async def handle_photo(message: Message, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        # Запрос анализа
-        analysis_text = await ask_yandex(ANALYSIS_PROMPT, max_tokens="1500", temperature=0.5)
+        # Усиленный анализ
+        analysis_text = await ask_yandex(ANALYSIS_PROMPT, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
-        # Сохраняем base64 изображение в состояние для повторного использования
         await state.update_data(b64_image=b64_img)
-
-        # Переходим к выбору стиля
         await state.set_state(PhotoStates.waiting_for_style)
         await message.answer(
             "Хочешь применить один из моих плёночных стилей? Я добавлю сочный пресет! 🎞️",
@@ -357,12 +386,12 @@ async def skip_style(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PhotoStates.waiting_for_photo)
     await callback.answer()
 
-# ---------- Генерация пресета при выборе конкретного стиля ----------
+# ---------- Генерация пресета ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data.startswith("style_"))
 async def process_style(callback: CallbackQuery, state: FSMContext):
     global remaining_generations
     chosen = callback.data
-    style_info = FILM_PROMPTS.get(chosen, "Классическая плёнка")
+    style_info = FILM_PROMPTS.get(chosen, "универсальный стиль")
 
     if GENERATION_LIMIT > 0 and remaining_generations <= 0:
         await callback.message.edit_text(
@@ -385,14 +414,12 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        # Запрос на генерацию пресета
         prompt = BASE_PROMPT.format(style_info=style_info)
         ai_text = await ask_yandex(prompt, max_tokens="2000", temperature=0.6)
 
         if GENERATION_LIMIT > 0:
             remaining_generations -= 1
 
-        # Извлекаем XML
         xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
         if xml_match:
             xml_content = xml_match.group(1).strip()
@@ -444,24 +471,38 @@ async def handle_document(message: Message):
         "чтобы я увидела красоту и включила свои ИИ-линзы! ✨"
     )
 
-# ---------- Живые ответы (смешанный режим, всегда через YandexGPT) ----------
+# ---------- Живое общение (смешанный режим) ----------
 @dp.message(PhotoStates.waiting_for_photo, F.text & ~F.text.startswith("/"))
 async def chat_waiting_for_photo(message: Message, state: FSMContext):
     if not CHAT_ENABLED:
         await message.answer("🦊 Жду фотографию! Но можем и поболтать — задай вопрос.")
         return
     await bot.send_chat_action(message.chat.id, "typing")
-    await asyncio.sleep(random.uniform(0.5, 2.0))  # имитация размышлений
+    await asyncio.sleep(random.uniform(0.5, 2.0))
     reply = await ask_ari(message.text)
     await message.answer(reply)
 
+# Глобальный чат (вне состояний) – в том числе обрабатывает фразу «что ты умеешь»
 @dp.message(F.text & ~F.text.startswith("/"))
 async def global_chat(message: Message):
     if not CHAT_ENABLED:
         return
     current_state = await dp.storage.get_state(message.from_user.id)
     if current_state is not None:
-        return  # не мешаем активным сценариям
+        return
+
+    # Если пользователь спрашивает «что ты умеешь», покажем меню
+    if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что ты можешь", "что можешь"]):
+        await message.answer(
+            "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\n"
+            "Могу проанализировать твоё фото, найти ошибки и рассказать, как их исправить.\n"
+            "Знаю кучу плёночных стилей и умею создавать пресеты для Lightroom.\n"
+            "Ещё я просто обожаю болтать о фотографии — так что давай на «ты» с камерой! 😉\n\n"
+            "Вот что ты можешь попросить меня сделать прямо сейчас:",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
+
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2.0))
     reply = await ask_ari(message.text)
@@ -476,7 +517,7 @@ async def handle_sticker(message: Message):
     ]
     await message.answer(random.choice(replies))
 
-# ---------- Заглушка для текста в занятых состояниях ----------
+# ---------- Заглушка для занятых состояний ----------
 @dp.message(PhotoStates.waiting_for_style)
 @dp.message(PhotoStates.waiting_for_qa)
 async def text_in_busy_state(message: Message):
