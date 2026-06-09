@@ -32,6 +32,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 GENERATION_LIMIT = int(os.getenv("GENERATION_LIMIT", "0") or "0")
 remaining_generations = GENERATION_LIMIT
 CHAT_ENABLED = os.getenv("CHAT_ENABLED", "True").lower() == "true"
+VOICE_ENABLED = os.getenv("VOICE_ENABLED", "True").lower() == "true"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,44 +42,44 @@ class PhotoStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_style = State()
     waiting_for_qa = State()
-    waiting_for_prompt = State()   # для генерации изображений
+    waiting_for_prompt = State()
 
 # ---------- Локализация ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
-        "help": "📖 Инструкция по фокусу:\n1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
-        "settings": "🛠 Тюнинг объектива\n\nЗдесь скоро появится настройка качества обработки, выбор формата пресетов и фильтры.\nПока я использую стандартный профиль: мягкий контраст, точные цвета и максимум деталей.\n\n⚙️ Ожидай обновлений — я стану ещё гибче!",
-        "premium": "⚡️ Кибер-прокачка\n\nС режимом PREMIUM я смогу:\n• Обрабатывать серии фото за раз\n• Генерировать пресеты в .xmp и .dng\n• Давать расширенный анализ с гистограммой\n• Работать с видео-кадрами\n\nПока этот модуль в разработке, но ты уже пользуешься базовыми супер-силами бесплатно! 🦊",
+        "help": "📖 Инструкция по фокусу...",
+        "settings": "🛠 Тюнинг объектива...",
+        "premium": "⚡️ Кибер-прокачка...",
         "cancel": "🦊 Предыдущее действие отменено. Жду новое фото!",
         "menu": "🦊 Главное меню Ари",
-        "what": "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\nМогу проанализировать твоё фото, найти ошибки и рассказать, как их исправить.\nЗнаю кучу плёночных стилей и умею создавать пресеты для Lightroom.\nЕщё я просто обожаю болтать о фотографии — так что давай на «ты» с камерой! 😉\n\nВот что ты можешь попросить меня сделать прямо сейчас:",
+        "what": "🦊 О, я умею видеть то, что скрыто...",
         "choose_style": "🎞️ Выбери стиль",
         "skip_style": "✅ Разбор завершён! Жду новое фото 📸",
         "all_styles": "📋 Все стили",
         "analysis_start": "🦊 Хмм, сканирую взглядом... Дай мне пару сек, подкручу настройки магии! 👀",
-        "small_photo": "Ой, какая крошечная пиксельная картинка! 🧐 Моему искусственному интеллекту тут просто негде разгуляться — мало деталей для магии. Накорми меня сочным кадром в хорошем разрешении, и я сделаю из него настоящий шедевр!",
-        "document_error": "Упс! Похоже, ты прислал файл, а не фото. 📦 Мои лапки не могут открыть документ — отправь изображение как «Фото/Медиа», чтобы я увидела красоту и включила свои ИИ-линзы! ✨",
+        "small_photo": "Ой, какая крошечная пиксельная картинка!...",
+        "document_error": "Упс! Похоже, ты прислал файл, а не фото. 📦",
         "style_processing": "Ловлю фокус... Навожу резкость... Хитрые алгоритмы уже шуршат! 🐾⚙️",
         "preset_caption": "🦊 Твой пресет для Lightroom (включая Mobile)!",
         "qa_choose": "Есть вопросы по кадру? Выбери тему:",
         "qa_done": "✅ Разбор завершён! Жду новое фото 📸",
-        "qa_wb": "🌡️ Баланс белого: поправь ползунок Temp в Lightroom, для улицы 5500-6500K.",
-        "qa_sky": "⛅ Пересветы спасаем: Highlights вниз, градиентный фильтр на небе.",
-        "qa_shadows": "🌑 Тени: Shadows вправо, но осторожно с шумами.",
-        "qa_crop": "📐 Кадрирование: правило третей, объект на пересечении линий.",
-        "qa_face": "Так-так-так... 👀 Сканирую, сканирую — а где же тут ты? Мои датчики не зафиксировали ни одной улыбки. Подсунь мне фоточку с лицом, и магия сработает как надо! 🦊",
         "main_focus": "📸 Фокус наведён! Присылай своё фото, и я сразу всё расскажу.",
         "main_magic": "✨ Магия ИИ-фильтров",
-        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке. Скоро я смогу удалять фон и лишние объекты. Следи за обновлениями!",
-        "main_gallery": "🦊 Твоя галерея пока пуста. Отправь мне фото, и я добавлю сюда обработанные шедевры.",
-        "main_energy": "💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом. Все генерации и пресеты — бесплатно, наслаждайся!",
+        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке...",
+        "main_gallery": "🦊 Твоя галерея пока пуста...",
+        "main_energy": "💎 Энергия Ари: сейчас безлимитный доступ.",
         "main_generate": "🎨 Генератор изображений",
         "lang_switched": "🦊 Язык изменён на русский 🇷🇺",
-        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую это с помощью магии Yandex Art! Отправь мне описание (можно на русском).",
-        "generating": "🦊 Рисую... Это займёт немного времени.",
-        "generated": "✨ Вот что получилось! Надеюсь, тебе понравится.",
-        "generate_error": "😿 Не получилось сгенерировать изображение. Возможно, описание слишком сложное или превышен лимит. Попробуй чуть позже.",
+        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую...",
+        "generating": "🦊 Рисую...",
+        "generated": "✨ Вот что получилось!",
+        "generate_error": "😿 Не получилось сгенерировать изображение...",
+        "ask_for_photo": "🦊 Чтобы я проанализировала снимок, пришли мне фотографию. Я сразу расскажу, что не так и как исправить!",
+        "busy_photo_override": "🦊 Вижу, ты прислал новое фото. Я остановлю предыдущий процесс и начну анализ заново.",
+        "new_analysis": "🔄 Новый анализ",
+        "voice_unrecognized": "🦊 Не разобрала твой голос. Может, повторишь текстом?",
+        "voice_analysis_request": "🦊 Чтобы я проанализировала фото, просто пришли мне картинку, а не говори о ней 😉",
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
@@ -98,11 +99,6 @@ LOCALE = {
         "preset_caption": "🦊 Your Lightroom preset (including Mobile)!",
         "qa_choose": "Any questions about the shot? Choose a topic:",
         "qa_done": "✅ Analysis done! Send a new photo 📸",
-        "qa_wb": "🌡️ White balance...",
-        "qa_sky": "⛅ Saving highlights...",
-        "qa_shadows": "🌑 Shadows...",
-        "qa_crop": "📐 Cropping...",
-        "qa_face": "Wait, wait... 👀",
         "main_focus": "📸 Focus on!",
         "main_magic": "✨ AI magic",
         "main_crop": "✂️ Feature in development...",
@@ -110,34 +106,33 @@ LOCALE = {
         "main_energy": "💎 Ari Energy: unlimited",
         "main_generate": "🎨 Image Generator",
         "lang_switched": "🦊 Language switched to English 🇬🇧",
-        "generate_prompt": "🎨 Describe what you want to see, and I'll draw it...",
-        "generating": "🦊 Drawing... This may take a moment.",
-        "generated": "✨ Here you go! Hope you like it.",
+        "generate_prompt": "🎨 Describe what you want to see...",
+        "generating": "🦊 Drawing...",
+        "generated": "✨ Here you go!",
         "generate_error": "😿 Couldn't generate the image...",
+        "ask_for_photo": "🦊 To analyze a photo, please send it to me. I'll tell you what's wrong and how to fix it!",
+        "busy_photo_override": "🦊 I see a new photo. I'll stop the previous process and start the analysis over.",
+        "new_analysis": "🔄 New analysis",
+        "voice_unrecognized": "🦊 Couldn't catch your voice. Maybe type it?",
+        "voice_analysis_request": "🦊 To analyze a photo, just send me the picture, don't tell me about it 😉",
     }
 }
 
 # ---------- Стили плёнок ----------
 FILM_PROMPTS = {
-    # Kodak
     "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
     "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
     "style_kodak_ektar": "Kodak Ektar 100 (высокая насыщенность, резкость, яркие цвета)",
     "style_kodak_trix": "Kodak Tri-X 400 (классический ч/б стиль, глубокие тени, выраженное зерно)",
     "style_kodak_vision": "Kodak Vision3 250D (кинематографичный стиль, мягкий контраст, естественные тона)",
-    # Fuji
     "style_fuji_superia": "Fuji Superia 400 (насыщенные зелёные и холодные тона, отличный баланс в тенях)",
     "style_fuji_velvia": "Fuji Velvia 50 (экстремальная насыщенность, сочные цвета, высокая резкость)",
     "style_fuji_provia": "Fuji Provia 100 (естественные цвета, умеренный контраст, гладкая цветопередача)",
     "style_fuji_astia": "Fuji Astia 100 (мягкие пастельные тона, идеально для портретов, низкий контраст)",
-    # Cinestill
     "style_cinestill": "Cinestill 800T (кинематографичный холодный оттенок, неоновые ореолы, киберпанк)",
-    # Hasselblad
     "style_hasselblad": "Hasselblad HNCS (натуральные благородные цвета среднего формата, мягкий спад контраста)",
-    # Креативные
     "style_lomo_redscale": "Lomography Redscale (смещение в красно-оранжевую гамму, эффект засветки)",
     "style_agfa_vista": "Agfa Vista 200 (тёплые, слегка пыльные тона, ретро-стиль 80-х)",
-    # Дополнительные стили
     "style_cinematic": "Cinematic (кинематографический цвет, широкий динамический диапазон)",
     "style_hdr": "HDR (высокая детализация, контраст, насыщенные цвета, без засветов)",
     "style_clean_portrait": "Clean Portrait (мягкая кожа, приятный тон, удаление дефектов)",
@@ -145,23 +140,12 @@ FILM_PROMPTS = {
 }
 
 STYLE_ICONS = {
-    "style_kodak_portra": "🎞️",
-    "style_kodak_gold": "✨",
-    "style_kodak_ektar": "🌟",
-    "style_kodak_trix": "🖤",
-    "style_kodak_vision": "🎥",
-    "style_fuji_superia": "🌲",
-    "style_fuji_velvia": "🌈",
-    "style_fuji_provia": "🌅",
-    "style_fuji_astia": "🌸",
-    "style_cinestill": "🌃",
-    "style_hasselblad": "💎",
-    "style_lomo_redscale": "🔴",
-    "style_agfa_vista": "📷",
-    "style_cinematic": "🎬",
-    "style_hdr": "🏙️",
-    "style_clean_portrait": "👤",
-    "style_night_city": "🌃",
+    "style_kodak_portra": "🎞️", "style_kodak_gold": "✨", "style_kodak_ektar": "🌟",
+    "style_kodak_trix": "🖤", "style_kodak_vision": "🎥", "style_fuji_superia": "🌲",
+    "style_fuji_velvia": "🌈", "style_fuji_provia": "🌅", "style_fuji_astia": "🌸",
+    "style_cinestill": "🌃", "style_hasselblad": "💎", "style_lomo_redscale": "🔴",
+    "style_agfa_vista": "📷", "style_cinematic": "🎬", "style_hdr": "🏙️",
+    "style_clean_portrait": "👤", "style_night_city": "🌃",
 }
 
 # ---------- Рекомендация стилей ----------
@@ -189,45 +173,35 @@ def suggest_styles(analysis_text: str):
         scores["style_kodak_portra"] = 1
         scores["style_fuji_provia"] = 1
         scores["style_hasselblad"] = 1
-    sorted_styles = sorted(scores, key=scores.get, reverse=True)[:3]
-    return sorted_styles
+    return sorted(scores, key=scores.get, reverse=True)[:3]
 
 # ---------- Системные промпты ----------
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
-
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
     "Разбери его по пунктам и обязательно дай числовые рекомендации для Lightroom:\n"
-    "- Экспозиция (Exposure): текущий уровень, на сколько его изменить (например, +0.5 или -0.3).\n"
-    "- Контраст (Contrast): насколько его увеличить или уменьшить.\n"
-    "- Света́ (Highlights) и тени (Shadows): на сколько сдвинуть ползунки.\n"
-    "- Баланс белого (Temperature и Tint): текущая оценочная температура в Кельвинах, "
-    "какую поставить для исправления.\n"
+    "- Экспозиция (Exposure): текущий уровень, на сколько его изменить.\n"
+    "- Контраст (Contrast): насколько увеличить/уменьшить.\n"
+    "- Света (Highlights) и тени (Shadows): на сколько сдвинуть ползунки.\n"
+    "- Баланс белого (Temperature и Tint): оценочная температура, рекомендуемая.\n"
     "- Чёрные и белые точки (Blacks, Whites): нужна ли коррекция.\n"
     "- Насыщенность (Vibrance, Saturation): на сколько изменить.\n"
     "- Чёткость (Clarity): рекомендованное значение.\n"
     "- Шум и резкость: есть ли проблемы, что делать.\n"
     "- Композиция: ошибки кадрирования, как поправить.\n"
-    "Для каждого пункта пиши конкретную цифру или диапазон. "
-    "Пиши в игривом стиле Ари, с эмодзи 🦊, 📸, ✨. "
-    "Не предлагай пресеты, только анализ и цифровые советы."
+    "Для каждого пункта пиши конкретную цифру. Не предлагай пресеты."
 )
-
 BASE_PROMPT = (
     "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
-    "Сгенерируй XMP-пресет для Lightroom (включая Mobile) внутри тегов ```xml ... ```.\n"
+    "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
     "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
 )
-
 CHAT_PROMPT = (
-    "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. "
-    "Отвечай коротко, как друг."
+    "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. Отвечай коротко, как друг."
 )
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
-# Множество пользователей для рассылки
 all_users = set()
 
 # ---------- Клавиатуры ----------
@@ -275,128 +249,120 @@ def get_style_choice_keyboard(lang="ru"):
 def get_qa_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=loc["qa_wb"], callback_data="qa_wb"),
-         InlineKeyboardButton(text=loc["qa_sky"], callback_data="qa_sky")],
-        [InlineKeyboardButton(text=loc["qa_shadows"], callback_data="qa_shadows"),
-         InlineKeyboardButton(text=loc["qa_crop"], callback_data="qa_crop")],
-        [InlineKeyboardButton(text=loc["qa_face"], callback_data="qa_face"),
-         InlineKeyboardButton(text=loc["qa_done"], callback_data="qa_done")]
+        [InlineKeyboardButton(text="🌡️ " + "Баланс белого", callback_data="qa_wb"),
+         InlineKeyboardButton(text="⛅ " + "Пересветы", callback_data="qa_sky")],
+        [InlineKeyboardButton(text="🌑 " + "Тени", callback_data="qa_shadows"),
+         InlineKeyboardButton(text="📐 " + "Кадрирование", callback_data="qa_crop")],
+        [InlineKeyboardButton(text="👤 " + "Не вижу лицо", callback_data="qa_face"),
+         InlineKeyboardButton(text="🛑 " + "Завершить", callback_data="qa_done")],
+        [InlineKeyboardButton(text=loc["new_analysis"], callback_data="new_analysis")]
     ])
 
-# ---------- Запросы к YandexGPT ----------
+# ---------- Запросы к Yandex ----------
 async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
-    headers = {
-        "Authorization": f"Api-Key {YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {
-            "stream": False,
-            "temperature": temperature,
-            "maxTokens": max_tokens
-        },
-        "messages": [
-            {"role": "system", "text": SYSTEM_PROMPT},
-            {"role": "user", "text": prompt}
-        ]
+        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
+        "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
     }
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-                headers=headers,
-                json=body,
-                timeout=60.0
-            )
+            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=60.0)
         if resp.status_code == 200:
-            data = resp.json()
-            return data["result"]["alternatives"][0]["message"]["text"]
+            return resp.json()["result"]["alternatives"][0]["message"]["text"]
         else:
-            logger.error(f"Yandex API error: {resp.status_code} {resp.text}")
-            return "🦊 Что-то пошло не так с моими кибер‑лапками... Попробуй ещё раз."
+            logger.error(f"Yandex API error: {resp.status_code}")
+            return "🦊 Что-то пошло не так с моими кибер‑лапками..."
     except Exception as e:
         logger.error(f"Yandex request failed: {e}")
-        return "🦊 Хвост запутался в проводах! Повтори попытку позже."
+        return "🦊 Хвост запутался в проводах!"
 
 async def ask_ari(question: str) -> str:
-    headers = {
-        "Authorization": f"Api-Key {YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
         "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
-        "messages": [
-            {"role": "system", "text": CHAT_PROMPT},
-            {"role": "user", "text": question}
-        ]
+        "messages": [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
     }
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-                headers=headers,
-                json=body,
-                timeout=30.0
-            )
+            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
         if resp.status_code == 200:
-            data = resp.json()
-            return data["result"]["alternatives"][0]["message"]["text"]
+            return resp.json()["result"]["alternatives"][0]["message"]["text"]
         else:
             logger.error(f"Chat API error: {resp.status_code}")
-            return "🦊 Что-то я запуталась... Давай попробуем ещё раз?"
+            return "🦊 Что-то я запуталась..."
     except Exception as e:
         logger.error(f"Chat request failed: {e}")
-        return "🦊 Ой, кажется, у меня хвост запутался в проводах. Повтори позже!"
+        return "🦊 Хвост запутался в проводах!"
 
 async def generate_image(prompt: str) -> bytes | None:
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync"
-    headers = {
-        "Authorization": f"Api-Key {YANDEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandex-art/latest",
-        "generationOptions": {
-            "seed": random.randint(1, 1000000),
-            "mimeType": "image/png",
-            "temperature": 0.7
-        },
+        "generationOptions": {"seed": random.randint(1, 1000000), "mimeType": "image/png", "temperature": 0.7},
         "messages": [{"text": prompt, "weight": 1}]
     }
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code != 200:
-                logger.error(f"Yandex Art generate error: {resp.status_code} {resp.text}")
-                return None
+            if resp.status_code != 200: return None
             data = resp.json()
             operation_id = data.get("id")
-            if not operation_id:
-                return None
+            if not operation_id: return None
             while True:
                 await asyncio.sleep(2)
                 get_url = f"https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync/operations/{operation_id}"
                 get_resp = await client.get(get_url, headers=headers)
-                if get_resp.status_code != 200:
-                    continue
+                if get_resp.status_code != 200: continue
                 op_data = get_resp.json()
                 if op_data.get("done"):
                     if op_data.get("response"):
-                        image_b64 = op_data["response"]["image"]
-                        return base64.b64decode(image_b64)
+                        return base64.b64decode(op_data["response"]["image"])
                     else:
                         return None
     except Exception as e:
         logger.error(f"Image generation exception: {e}")
         return None
 
-# ---------- Сохранение пользователя ----------
+async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
+    url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
+    params = {"lang": lang, "format": "oggopus"}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=headers, params=params, content=audio_bytes, timeout=30.0)
+        if resp.status_code == 200:
+            return resp.json().get("result", "")
+        else:
+            logger.error(f"STT error: {resp.status_code}")
+            return ""
+    except Exception as e:
+        logger.error(f"STT exception: {e}")
+        return ""
+
+async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
+    url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
+    params = {"text": text, "lang": lang, "voice": "alena", "emotion": "good", "speed": "1.0", "pitch": "0.2", "format": "oggopus"}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=headers, data=params, timeout=30.0)
+        if resp.status_code == 200:
+            return resp.content
+        else:
+            logger.error(f"TTS error: {resp.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"TTS exception: {e}")
+        return None
+
 async def save_user(user_id: int):
     all_users.add(user_id)
 
-# ---------- Обработчики команд ----------
+# ---------- Обработчики команд (без изменений) ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -404,15 +370,13 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.update_data(lang=lang)
     await state.clear()
     await state.set_state(PhotoStates.waiting_for_photo)
-    loc = LOCALE[lang]
-    await message.answer(loc["start"], reply_markup=get_main_menu_keyboard(lang))
+    await message.answer(LOCALE[lang]["start"], reply_markup=get_main_menu_keyboard(lang))
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
-    await message.answer(loc["menu"], reply_markup=get_main_menu_keyboard(lang))
+    await message.answer(LOCALE[lang]["menu"], reply_markup=get_main_menu_keyboard(lang))
 
 @dp.message(Command("lang"))
 async def cmd_lang(message: Message, state: FSMContext):
@@ -420,36 +384,31 @@ async def cmd_lang(message: Message, state: FSMContext):
     current_lang = data.get("lang", "ru")
     new_lang = "en" if current_lang == "ru" else "ru"
     await state.update_data(lang=new_lang)
-    loc = LOCALE[new_lang]
-    await message.answer(loc["lang_switched"])
+    await message.answer(LOCALE[new_lang]["lang_switched"])
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
-    await message.answer(loc["what"], reply_markup=get_main_menu_keyboard(lang))
+    await message.answer(LOCALE[lang]["what"], reply_markup=get_main_menu_keyboard(lang))
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
-    await message.answer(loc["help"])
+    await message.answer(LOCALE[lang]["help"])
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
     await state.clear()
     await state.set_state(PhotoStates.waiting_for_photo)
-    await message.answer(loc["cancel"])
+    await message.answer(LOCALE[lang]["cancel"])
 
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     text = message.text.replace("/broadcast", "").strip()
     if not text:
         await message.answer("Использование: /broadcast <текст>")
@@ -463,64 +422,73 @@ async def cmd_broadcast(message: Message):
             logger.warning(f"Не удалось отправить пользователю {user_id}: {e}")
     await message.answer(f"Рассылка завершена. Отправлено {success}/{len(all_users)} пользователям.")
 
-# ---------- Главное меню (callback'и) ----------
+# ---------- Главное меню ----------
 @dp.callback_query(F.data == "main_focus")
 async def main_focus(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.set_state(PhotoStates.waiting_for_photo)
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
-    await callback.message.edit_text(loc["main_focus"])
+    await callback.message.edit_text(LOCALE[lang]["main_focus"])
     await callback.answer()
 
 @dp.callback_query(F.data == "main_magic")
 async def main_magic(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
     current_state = await state.get_state()
     if current_state == PhotoStates.waiting_for_style:
-        await callback.message.edit_text(loc["choose_style"], reply_markup=get_style_keyboard(lang))
+        await callback.message.edit_text(LOCALE[lang]["choose_style"], reply_markup=get_style_keyboard(lang))
     else:
         await state.clear()
         await state.set_state(PhotoStates.waiting_for_photo)
-        await callback.message.edit_text("✨ " + loc["main_magic"])
+        await callback.message.edit_text("✨ " + LOCALE[lang]["main_magic"])
     await callback.answer()
 
 @dp.callback_query(F.data == "main_crop")
 async def main_crop(callback: CallbackQuery):
-    await callback.message.edit_text("✂️ Функция «Обрезать лишнее» пока в разработке. Скоро я смогу удалять фон и лишние объекты. Следи за обновлениями!")
+    await callback.message.edit_text("✂️ Функция «Обрезать лишнее» пока в разработке...")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_gallery")
 async def main_gallery(callback: CallbackQuery):
-    await callback.message.edit_text("🦊 Твоя галерея пока пуста. Отправь мне фото, и я добавлю сюда обработанные шедевры.")
+    await callback.message.edit_text("🦊 Твоя галерея пока пуста...")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_energy")
 async def main_energy(callback: CallbackQuery):
-    await callback.message.edit_text("💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом. Все генерации и пресеты — бесплатно, наслаждайся!")
+    await callback.message.edit_text("💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом.")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_generate")
 async def main_generate(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALE[lang]
     await state.set_state(PhotoStates.waiting_for_prompt)
-    await callback.message.edit_text(loc["generate_prompt"])
+    await callback.message.edit_text(LOCALE[lang]["generate_prompt"])
     await callback.answer()
 
-# ---------- Обработка фото (с EXIF) ----------
-@dp.message(PhotoStates.waiting_for_photo, F.photo)
-async def handle_photo(message: Message, state: FSMContext):
+# ---------- Обработка фото (в любом состоянии) ----------
+@dp.message(F.photo)
+async def handle_photo_any_state(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state == PhotoStates.waiting_for_prompt:
+        return
+
     await save_user(message.from_user.id)
-    photo_id = message.photo[-1].file_id
-    await state.update_data(photo_id=photo_id)
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
+
+    if current_state in [PhotoStates.waiting_for_style, PhotoStates.waiting_for_qa]:
+        await message.answer(loc["busy_photo_override"])
+    elif current_state != PhotoStates.waiting_for_photo:
+        await message.answer("🦊 Новый кадр! Начинаю анализ.")
+
+    await state.clear()
+    await state.set_state(PhotoStates.waiting_for_photo)
+    photo_id = message.photo[-1].file_id
+    await state.update_data(photo_id=photo_id)
 
     try:
         file_info = await bot.get_file(photo_id)
@@ -543,7 +511,6 @@ async def handle_photo(message: Message, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        # Извлечение EXIF-данных
         exif_info = ""
         try:
             image_stream = io.BytesIO(image_bytes)
@@ -561,26 +528,22 @@ async def handle_photo(message: Message, state: FSMContext):
                 if exif_parts:
                     exif_info = "Реальные параметры съёмки: " + "; ".join(exif_parts) + "."
         except Exception as e:
-            logger.warning(f"Не удалось прочитать EXIF: {e}")
+            logger.warning(f"EXIF error: {e}")
 
-        # Дополняем промпт анализа фактическими данными
-        full_prompt = ANALYSIS_PROMPT
-        if exif_info:
-            full_prompt = exif_info + "\n" + ANALYSIS_PROMPT
-
+        full_prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
         analysis_text = await ask_yandex(full_prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
         recommended = suggest_styles(analysis_text)
         await state.update_data(b64_image=b64_img, lang=lang)
         await state.set_state(PhotoStates.waiting_for_style)
-        await message.answer(loc["choose_style"], reply_markup=get_style_keyboard(lang, selected_styles=recommended))
+        await message.answer("Хочешь применить один из моих плёночных стилей? 🎞️", reply_markup=get_style_choice_keyboard(lang))
     except Exception as e:
         logger.error(f"Analysis error: {e}")
         await message.answer("😿 Что-то пошло не так во время анализа. Попробуй другое фото.")
         await state.set_state(PhotoStates.waiting_for_photo)
 
-# ---------- Выбор стиля ----------
+# ---------- Выбор стиля и генерация пресета ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
 async def choose_style(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -603,7 +566,6 @@ async def show_all_styles(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(LOCALE[lang]["choose_style"], reply_markup=get_style_keyboard(lang))
     await callback.answer()
 
-# ---------- Генерация пресета ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data.startswith("style_"))
 async def process_style(callback: CallbackQuery, state: FSMContext):
     global remaining_generations
@@ -614,7 +576,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
     loc = LOCALE[lang]
 
     if GENERATION_LIMIT > 0 and remaining_generations <= 0:
-        await callback.message.edit_text("Ох... Мой ИИ-аккумулятор сел, а лапки устали крутить колесо генераций! 🔋 Сеанс магии окончен, пока батарейка не зарядится.\nЗагляни в «Мою нору» за кибер-прокачкой ⚡️ или подожди немного.")
+        await callback.message.edit_text("Ох... Мой ИИ-аккумулятор сел...")
         await state.set_state(PhotoStates.waiting_for_photo)
         await callback.answer()
         return
@@ -624,14 +586,13 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
 
     b64_image = data.get("b64_image")
     if not b64_image:
-        await callback.message.edit_text("😿 Фото потерялось из памяти. Пришли его снова.")
+        await callback.message.edit_text("😿 Фото потерялось из памяти.")
         await state.set_state(PhotoStates.waiting_for_photo)
         return
 
     try:
         prompt = BASE_PROMPT.format(style_info=style_info)
         ai_text = await ask_yandex(prompt, max_tokens="2000", temperature=0.6)
-
         if GENERATION_LIMIT > 0:
             remaining_generations -= 1
 
@@ -650,7 +611,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
     except Exception as e:
         logger.error(f"Style processing error: {e}")
-        await callback.message.edit_text("😿 Не получилось создать пресет. Попробуй другой стиль.")
+        await callback.message.edit_text("😿 Не получилось создать пресет.")
         await state.set_state(PhotoStates.waiting_for_style)
     await callback.answer()
 
@@ -664,8 +625,18 @@ async def process_qa(callback: CallbackQuery, state: FSMContext):
     if qa == "qa_done":
         await callback.message.edit_text(loc["qa_done"])
         await state.set_state(PhotoStates.waiting_for_photo)
+    elif qa == "new_analysis":
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await callback.message.edit_text("🦊 Жду новый кадр! Присылай фото.")
     else:
-        await callback.message.answer(loc.get(qa, "🦊 Анализирую..."))
+        answers = {
+            "qa_wb": "🌡️ Баланс белого: поправь ползунок Temp в Lightroom, для улицы 5500-6500K.",
+            "qa_sky": "⛅ Пересветы спасаем: Highlights вниз, градиентный фильтр на небе.",
+            "qa_shadows": "🌑 Тени: Shadows вправо, но осторожно с шумами.",
+            "qa_crop": "📐 Кадрирование: правило третей, объект на пересечении линий.",
+            "qa_face": "Так-так-так... 👀 Сканирую, сканирую — а где же тут ты? ..."
+        }
+        await callback.message.answer(answers.get(qa, "🦊 Анализирую..."))
         await callback.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
     await callback.answer()
 
@@ -674,7 +645,7 @@ async def process_qa(callback: CallbackQuery, state: FSMContext):
 async def cmd_generate(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALЕ[lang]
+    loc = LOCALE[lang]
     prompt = message.text.replace("/generate", "", 1).strip()
     if not prompt:
         await state.set_state(PhotoStates.waiting_for_prompt)
@@ -685,8 +656,7 @@ async def cmd_generate(message: Message, state: FSMContext):
     image_bytes = await generate_image(prompt)
     if image_bytes:
         filename = f"generated_{message.from_user.id}.png"
-        with open(filename, "wb") as f:
-            f.write(image_bytes)
+        with open(filename, "wb") as f: f.write(image_bytes)
         photo = FSInputFile(filename)
         await message.answer_photo(photo, caption=loc["generated"])
         os.remove(filename)
@@ -698,18 +668,17 @@ async def cmd_generate(message: Message, state: FSMContext):
 async def handle_generation_prompt(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALЕ[lang]
+    loc = LOCALE[lang]
     prompt = message.text.strip()
     if len(prompt) < 3:
-        await message.answer("🦊 Описание слишком короткое. Дай мне чуть больше деталей, чтобы магия сработала.")
+        await message.answer("🦊 Описание слишком короткое.")
         return
     await bot.send_chat_action(message.chat.id, "upload_photo")
     await message.answer(loc["generating"])
     image_bytes = await generate_image(prompt)
     if image_bytes:
         filename = f"generated_{message.from_user.id}.png"
-        with open(filename, "wb") as f:
-            f.write(image_bytes)
+        with open(filename, "wb") as f: f.write(image_bytes)
         photo = FSInputFile(filename)
         await message.answer_photo(photo, caption=loc["generated"])
         os.remove(filename)
@@ -724,34 +693,70 @@ async def handle_generation_prompt(message: Message, state: FSMContext):
 async def handle_document(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    loc = LOCALЕ[lang]
-    await message.answer(loc["document_error"])
+    await message.answer(LOCALE[lang]["document_error"])
 
-# ---------- Живое общение ----------
-@dp.message(PhotoStates.waiting_for_photo, F.text & ~F.text.startswith("/"))
-async def chat_waiting_for_photo(message: Message, state: FSMContext):
-    await save_user(message.from_user.id)
-    if not CHAT_ENABLED:
+# ---------- Голосовые сообщения ----------
+@dp.message(F.voice)
+async def voice_handler(message: Message, state: FSMContext):
+    if not CHAT_ENABLED or not VOICE_ENABLED:
         return
+    await save_user(message.from_user.id)
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    await bot.send_chat_action(message.chat.id, "typing")
-    await asyncio.sleep(random.uniform(0.5, 2.0))
-    reply = await ask_ari(message.text)
-    await message.answer(reply)
+    loc = LOCALE[lang]
+    lang_code = "ru-RU" if lang == "ru" else "en-US"
 
-@dp.message(F.text & ~F.text.startswith("/"))
-async def global_chat(message: Message, state: FSMContext):
-    await save_user(message.from_user.id)
-    if not CHAT_ENABLED:
+    file_id = message.voice.file_id
+    file = await bot.get_file(file_id)
+    file_bytes = await bot.download_file(file.file_path)
+    audio_bytes = file_bytes.read()
+
+    await bot.send_chat_action(message.chat.id, "typing")
+    text = await recognize_speech(audio_bytes, lang_code)
+    if not text:
+        await message.answer(loc["voice_unrecognized"])
         return
+
+    analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
+                         "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
+    if any(word in text.lower() for word in analysis_keywords):
+        await message.answer(loc["voice_analysis_request"])
+        return
+
+    reply_text = await ask_ari(text)
+    voice_bytes = await synthesize_speech(reply_text, lang_code)
+    if voice_bytes:
+        voice_file = BufferedInputFile(voice_bytes, filename="ari_voice.ogg")
+        await message.answer_voice(voice_file)
+    await message.answer(reply_text)
+
+# ---------- Текстовый чат ----------
+@dp.message(F.text & ~F.text.startswith("/"))
+async def smart_chat(message: Message, state: FSMContext):
+    if not CHAT_ENABLED: return
+    await save_user(message.from_user.id)
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+
+    analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
+                         "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
+    if any(word in message.text.lower() for word in analysis_keywords):
+        await message.answer(loc["ask_for_photo"])
+        return
+
     current_state = await state.get_state()
+    if current_state == PhotoStates.waiting_for_photo:
+        await bot.send_chat_action(message.chat.id, "typing")
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+        reply = await ask_ari(message.text)
+        await message.answer(reply)
+        return
+
     if current_state is not None:
         return
-    data = await state.get_data()
-    lang = data.get("lang", "ru")
+
     if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
-        loc = LOCALE[lang]
         await message.answer(loc["what"], reply_markup=get_main_menu_keyboard(lang))
         return
     await bot.send_chat_action(message.chat.id, "typing")
@@ -759,6 +764,7 @@ async def global_chat(message: Message, state: FSMContext):
     reply = await ask_ari(message.text)
     await message.answer(reply)
 
+# ---------- Стикеры ----------
 @dp.message(F.sticker)
 async def handle_sticker(message: Message):
     replies = [
