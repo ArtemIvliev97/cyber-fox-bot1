@@ -5,7 +5,7 @@ import re
 import httpx
 import asyncio
 import random
-import time
+import io
 
 from contextlib import asynccontextmanager
 from aiogram import Bot, Dispatcher, F, types
@@ -19,6 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 from fastapi import FastAPI, Request, Response
+import exifread
 
 # ---------- Переменные окружения ----------
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -45,19 +46,19 @@ class PhotoStates(StatesGroup):
 # ---------- Локализация ----------
 LOCALE = {
     "ru": {
-        "start": "🦊 Привет! На связи Ари — твой личный объектив...",
-        "help": "📖 Инструкция по фокусу...",
-        "settings": "🛠 Тюнинг объектива...",
-        "premium": "⚡️ Кибер-прокачка...",
+        "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
+        "help": "📖 Инструкция по фокусу:\n1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
+        "settings": "🛠 Тюнинг объектива\n\nЗдесь скоро появится настройка качества обработки, выбор формата пресетов и фильтры.\nПока я использую стандартный профиль: мягкий контраст, точные цвета и максимум деталей.\n\n⚙️ Ожидай обновлений — я стану ещё гибче!",
+        "premium": "⚡️ Кибер-прокачка\n\nС режимом PREMIUM я смогу:\n• Обрабатывать серии фото за раз\n• Генерировать пресеты в .xmp и .dng\n• Давать расширенный анализ с гистограммой\n• Работать с видео-кадрами\n\nПока этот модуль в разработке, но ты уже пользуешься базовыми супер-силами бесплатно! 🦊",
         "cancel": "🦊 Предыдущее действие отменено. Жду новое фото!",
         "menu": "🦊 Главное меню Ари",
-        "what": "🦊 О, я умею видеть то, что скрыто...",
+        "what": "🦊 О, я умею видеть то, что скрыто от обычных глаз! 📸\nМогу проанализировать твоё фото, найти ошибки и рассказать, как их исправить.\nЗнаю кучу плёночных стилей и умею создавать пресеты для Lightroom.\nЕщё я просто обожаю болтать о фотографии — так что давай на «ты» с камерой! 😉\n\nВот что ты можешь попросить меня сделать прямо сейчас:",
         "choose_style": "🎞️ Выбери стиль",
         "skip_style": "✅ Разбор завершён! Жду новое фото 📸",
         "all_styles": "📋 Все стили",
-        "analysis_start": "🦊 Хмм, сканирую взглядом...",
-        "small_photo": "Ой, какая крошечная...",
-        "document_error": "Упс! Похоже, ты прислал файл...",
+        "analysis_start": "🦊 Хмм, сканирую взглядом... Дай мне пару сек, подкручу настройки магии! 👀",
+        "small_photo": "Ой, какая крошечная пиксельная картинка! 🧐 Моему искусственному интеллекту тут просто негде разгуляться — мало деталей для магии. Накорми меня сочным кадром в хорошем разрешении, и я сделаю из него настоящий шедевр!",
+        "document_error": "Упс! Похоже, ты прислал файл, а не фото. 📦 Мои лапки не могут открыть документ — отправь изображение как «Фото/Медиа», чтобы я увидела красоту и включила свои ИИ-линзы! ✨",
         "style_processing": "Ловлю фокус... Навожу резкость... Хитрые алгоритмы уже шуршат! 🐾⚙️",
         "preset_caption": "🦊 Твой пресет для Lightroom (включая Mobile)!",
         "qa_choose": "Есть вопросы по кадру? Выбери тему:",
@@ -66,18 +67,18 @@ LOCALE = {
         "qa_sky": "⛅ Пересветы спасаем: Highlights вниз, градиентный фильтр на небе.",
         "qa_shadows": "🌑 Тени: Shadows вправо, но осторожно с шумами.",
         "qa_crop": "📐 Кадрирование: правило третей, объект на пересечении линий.",
-        "qa_face": "Так-так-так... 👀 Сканирую, сканирую — а где же тут ты? ...",
+        "qa_face": "Так-так-так... 👀 Сканирую, сканирую — а где же тут ты? Мои датчики не зафиксировали ни одной улыбки. Подсунь мне фоточку с лицом, и магия сработает как надо! 🦊",
         "main_focus": "📸 Фокус наведён! Присылай своё фото, и я сразу всё расскажу.",
         "main_magic": "✨ Магия ИИ-фильтров",
-        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке...",
-        "main_gallery": "🦊 Твоя галерея пока пуста...",
-        "main_energy": "💎 Энергия Ари: сейчас безлимитный доступ.",
+        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке. Скоро я смогу удалять фон и лишние объекты. Следи за обновлениями!",
+        "main_gallery": "🦊 Твоя галерея пока пуста. Отправь мне фото, и я добавлю сюда обработанные шедевры.",
+        "main_energy": "💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом. Все генерации и пресеты — бесплатно, наслаждайся!",
         "main_generate": "🎨 Генератор изображений",
         "lang_switched": "🦊 Язык изменён на русский 🇷🇺",
-        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую это с помощью магии Yandex Art! Отправь мне описание.",
+        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую это с помощью магии Yandex Art! Отправь мне описание (можно на русском).",
         "generating": "🦊 Рисую... Это займёт немного времени.",
         "generated": "✨ Вот что получилось! Надеюсь, тебе понравится.",
-        "generate_error": "😿 Не получилось сгенерировать изображение...",
+        "generate_error": "😿 Не получилось сгенерировать изображение. Возможно, описание слишком сложное или превышен лимит. Попробуй чуть позже.",
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
@@ -313,10 +314,10 @@ async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float =
             return data["result"]["alternatives"][0]["message"]["text"]
         else:
             logger.error(f"Yandex API error: {resp.status_code} {resp.text}")
-            return "🦊 Что-то пошло не так с моими кибер‑лапками..."
+            return "🦊 Что-то пошло не так с моими кибер‑лапками... Попробуй ещё раз."
     except Exception as e:
         logger.error(f"Yandex request failed: {e}")
-        return "🦊 Хвост запутался в проводах!"
+        return "🦊 Хвост запутался в проводах! Повтори попытку позже."
 
 async def ask_ari(question: str) -> str:
     headers = {
@@ -344,10 +345,10 @@ async def ask_ari(question: str) -> str:
             return data["result"]["alternatives"][0]["message"]["text"]
         else:
             logger.error(f"Chat API error: {resp.status_code}")
-            return "🦊 Что-то я запуталась..."
+            return "🦊 Что-то я запуталась... Давай попробуем ещё раз?"
     except Exception as e:
         logger.error(f"Chat request failed: {e}")
-        return "🦊 Хвост запутался в проводах..."
+        return "🦊 Ой, кажется, у меня хвост запутался в проводах. Повтори позже!"
 
 async def generate_image(prompt: str) -> bytes | None:
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync"
@@ -489,17 +490,17 @@ async def main_magic(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "main_crop")
 async def main_crop(callback: CallbackQuery):
-    await callback.message.edit_text("✂️ Функция «Обрезать лишнее» пока в разработке...")
+    await callback.message.edit_text("✂️ Функция «Обрезать лишнее» пока в разработке. Скоро я смогу удалять фон и лишние объекты. Следи за обновлениями!")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_gallery")
 async def main_gallery(callback: CallbackQuery):
-    await callback.message.edit_text("🦊 Твоя галерея пока пуста...")
+    await callback.message.edit_text("🦊 Твоя галерея пока пуста. Отправь мне фото, и я добавлю сюда обработанные шедевры.")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_energy")
 async def main_energy(callback: CallbackQuery):
-    await callback.message.edit_text("💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом.")
+    await callback.message.edit_text("💎 Энергия Ари: сейчас ты пользуешься безлимитным доступом. Все генерации и пресеты — бесплатно, наслаждайся!")
     await callback.answer()
 
 @dp.callback_query(F.data == "main_generate")
@@ -511,7 +512,7 @@ async def main_generate(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(loc["generate_prompt"])
     await callback.answer()
 
-# ---------- Обработка фото ----------
+# ---------- Обработка фото (с EXIF) ----------
 @dp.message(PhotoStates.waiting_for_photo, F.photo)
 async def handle_photo(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -542,7 +543,32 @@ async def handle_photo(message: Message, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        analysis_text = await ask_yandex(ANALYSIS_PROMPT, max_tokens="2000", temperature=0.4)
+        # Извлечение EXIF-данных
+        exif_info = ""
+        try:
+            image_stream = io.BytesIO(image_bytes)
+            tags = exifread.process_file(image_stream, details=False)
+            if tags:
+                exif_parts = []
+                if 'EXIF ExposureTime' in tags:
+                    exif_parts.append(f"Выдержка: {tags['EXIF ExposureTime']}")
+                if 'EXIF FNumber' in tags:
+                    exif_parts.append(f"Диафрагма: f/{tags['EXIF FNumber'].values[0]}")
+                if 'EXIF ISOSpeedRatings' in tags:
+                    exif_parts.append(f"ISO: {tags['EXIF ISOSpeedRatings']}")
+                if 'EXIF FocalLength' in tags:
+                    exif_parts.append(f"Фокусное: {tags['EXIF FocalLength']} мм")
+                if exif_parts:
+                    exif_info = "Реальные параметры съёмки: " + "; ".join(exif_parts) + "."
+        except Exception as e:
+            logger.warning(f"Не удалось прочитать EXIF: {e}")
+
+        # Дополняем промпт анализа фактическими данными
+        full_prompt = ANALYSIS_PROMPT
+        if exif_info:
+            full_prompt = exif_info + "\n" + ANALYSIS_PROMPT
+
+        analysis_text = await ask_yandex(full_prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
         recommended = suggest_styles(analysis_text)
@@ -588,7 +614,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
     loc = LOCALE[lang]
 
     if GENERATION_LIMIT > 0 and remaining_generations <= 0:
-        await callback.message.edit_text("Ох... Мой ИИ-аккумулятор сел...")
+        await callback.message.edit_text("Ох... Мой ИИ-аккумулятор сел, а лапки устали крутить колесо генераций! 🔋 Сеанс магии окончен, пока батарейка не зарядится.\nЗагляни в «Мою нору» за кибер-прокачкой ⚡️ или подожди немного.")
         await state.set_state(PhotoStates.waiting_for_photo)
         await callback.answer()
         return
@@ -598,7 +624,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
 
     b64_image = data.get("b64_image")
     if not b64_image:
-        await callback.message.edit_text("😿 Фото потерялось из памяти.")
+        await callback.message.edit_text("😿 Фото потерялось из памяти. Пришли его снова.")
         await state.set_state(PhotoStates.waiting_for_photo)
         return
 
@@ -624,7 +650,7 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
     except Exception as e:
         logger.error(f"Style processing error: {e}")
-        await callback.message.edit_text("😿 Не получилось создать пресет.")
+        await callback.message.edit_text("😿 Не получилось создать пресет. Попробуй другой стиль.")
         await state.set_state(PhotoStates.waiting_for_style)
     await callback.answer()
 
@@ -675,7 +701,7 @@ async def handle_generation_prompt(message: Message, state: FSMContext):
     loc = LOCALЕ[lang]
     prompt = message.text.strip()
     if len(prompt) < 3:
-        await message.answer("🦊 Описание слишком короткое.")
+        await message.answer("🦊 Описание слишком короткое. Дай мне чуть больше деталей, чтобы магия сработала.")
         return
     await bot.send_chat_action(message.chat.id, "upload_photo")
     await message.answer(loc["generating"])
