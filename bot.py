@@ -343,6 +343,12 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         logger.error(f"STT exception: {e}")
         return ""
 
+def fix_ari_pronunciation(text: str) -> str:
+    """
+    Заменяет 'Ари' на 'А+ри', чтобы TTS ставила ударение на первый слог.
+    """
+    return re.sub(r'\bАри\b', 'А+ри', text)
+
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
     """
     Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью.
@@ -418,14 +424,15 @@ async def cmd_lang(message: Message, state: FSMContext):
 
 @dp.message(Command("voice"))
 async def test_voice(message: Message):
-    """Демонстрация милого голоса Ари."""
+    """Демонстрация милого голоса Ари с правильным ударением."""
     phrases = [
         "Привет! Я Ари, и мой голос стал ещё милее!",
         "Ой, кажется, у меня мурашки по лапкам от твоего внимания!",
         "Сегодня отличный день, чтобы сделать крутой кадр. Ты готов?"
     ]
     for phrase in phrases:
-        voice_bytes = await synthesize_speech(phrase)
+        corrected = fix_ari_pronunciation(phrase)
+        voice_bytes = await synthesize_speech(corrected)
         if voice_bytes:
             voice_file = BufferedInputFile(voice_bytes, filename="ari_milaya.ogg")
             await message.answer_voice(voice_file)
@@ -770,7 +777,8 @@ async def voice_handler(message: Message, state: FSMContext):
         return
 
     reply_text = await ask_ari(text)
-    voice_bytes = await synthesize_speech(reply_text, lang_code)
+    corrected_reply = fix_ari_pronunciation(reply_text)
+    voice_bytes = await synthesize_speech(corrected_reply, lang_code)
     if voice_bytes:
         voice_file = BufferedInputFile(voice_bytes, filename="ari_voice.ogg")
         await message.answer_voice(voice_file)
