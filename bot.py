@@ -64,6 +64,7 @@ LOCALE = {
             "/settings — Настройки (скоро)\n"
             "/broadcast — Рассылка (только для админа)"
         ),
+        "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
         "settings": "🛠 Тюнинг объектива\n\nЗдесь скоро появится настройка качества обработки, выбор формата пресетов и фильтры.\nПока я использую стандартный профиль: мягкий контраст, точные цвета и максимум деталей.\n\n⚙️ Ожидай обновлений — я стану ещё гибче!",
         "premium": "⚡️ Кибер-прокачка\n\nС режимом PREMIUM я смогу:\n• Обрабатывать серии фото за раз\n• Генерировать пресеты в .xmp и .dng\n• Давать расширенный анализ с гистограммой\n• Работать с видео-кадрами\n\nПока этот модуль в разработке, но ты уже пользуешься базовыми супер-силами бесплатно! 🦊",
         "cancel": "🦊 Предыдущее действие отменено. Жду новое фото!",
@@ -115,6 +116,7 @@ LOCALE = {
             "/settings — Settings (coming soon)\n"
             "/broadcast — Broadcast message (admin only)"
         ),
+        "what_prompt": "In two or three playful sentences, tell what you can do as the cyber-fox Ari: analyze photos, suggest film styles, generate Lightroom presets, create images from descriptions, chat, and respond with voice. End with an invitation to send a photo. Be emotional, use emojis 🦊📸✨.",
         "settings": "🛠 Lens tuning...",
         "premium": "⚡️ Cyber upgrade...",
         "cancel": "🦊 Action cancelled...",
@@ -470,9 +472,13 @@ async def test_voice(message: Message):
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
+    """Ари игриво рассказывает, что умеет, без кнопок."""
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    await message.answer(LOCALE[lang]["what"], reply_markup=get_main_menu_keyboard(lang))
+    prompt = LOCALE[lang]["what_prompt"]
+    # Используем CHAT_PROMPT, чтобы получить живой, игривый ответ
+    answer = await ask_ari(prompt)
+    await message.answer(answer)
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message, state: FSMContext):
@@ -859,7 +865,10 @@ async def smart_chat(message: Message, state: FSMContext):
         return
 
     if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
-        await message.answer(loc["what"], reply_markup=get_main_menu_keyboard(lang))
+        # В свободном чате тоже используем живой ответ через ask_ari
+        prompt = LOCALE[lang]["what_prompt"]
+        reply = await ask_ari(prompt)
+        await message.answer(reply)
         return
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2.0))
