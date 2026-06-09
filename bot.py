@@ -345,41 +345,40 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
     """
-    Синтезирует речь с игривыми параметрами:
-    - voice: 'alena' (или 'oksana', если alena не поддерживает emotion)
-    - emotion: 'good'
-    - speed: случайно 0.9-1.1
-    - pitch: случайно 0.1-0.3 (чуть выше естественного, как у лисички)
+    Синтезирует речь с игривыми настройками (без pitch).
+    Использует emotion="good" и случайную скорость.
+    При ошибке с emotion пробует без неё.
     """
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
-    speed = round(random.uniform(0.9, 1.1), 1)
-    pitch = round(random.uniform(0.1, 0.3), 1)
+
+    # Параметры с emotion (основной вариант)
     params = {
         "text": text,
         "lang": lang,
         "voice": "alena",
         "emotion": "good",
-        "speed": str(speed),
-        "pitch": str(pitch),
+        "speed": str(round(random.uniform(0.9, 1.1), 1)),
         "format": "oggopus",
     }
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, data=params, timeout=30.0)
         if resp.status_code == 200:
             return resp.content
         else:
-            logger.error(f"TTS error: {resp.status_code} {resp.text}")
-            # Если ошибка из-за emotion, пробуем без неё
-            if "emotion" in resp.text.lower() or "bad request" in resp.text.lower():
+            logger.error(f"TTS error with emotion: {resp.status_code} {resp.text}")
+            # Если ошибка 400 – emotion не поддерживается, пробуем без него
+            if resp.status_code == 400:
                 params.pop("emotion", None)
-                params.pop("pitch", None)
                 params["speed"] = "1.0"
                 async with httpx.AsyncClient() as client2:
                     resp2 = await client2.post(url, headers=headers, data=params, timeout=30.0)
                 if resp2.status_code == 200:
                     return resp2.content
+                else:
+                    logger.error(f"TTS error without emotion: {resp2.status_code} {resp2.text}")
             return None
     except Exception as e:
         logger.error(f"TTS exception: {e}")
