@@ -49,6 +49,21 @@ LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
         "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
+        "commands_list": (
+            "📋 <b>Доступные команды</b>\n\n"
+            "/start — Пробудить Ари и начать диалог\n"
+            "/help — Инструкция по использованию\n"
+            "/commands — Этот список команд\n"
+            "/menu — Главное меню с кнопками\n"
+            "/what — Что умеет Ари\n"
+            "/lang — Сменить язык (русский/English)\n"
+            "/voice — Проверить голос Ари (если включён)\n"
+            "/generate — Сгенерировать изображение по описанию\n"
+            "/cancel — Отменить текущее действие\n"
+            "/premium — Информация о премиум-возможностях\n"
+            "/settings — Настройки (скоро)\n"
+            "/broadcast — Рассылка (только для админа)"
+        ),
         "settings": "🛠 Тюнинг объектива\n\nЗдесь скоро появится настройка качества обработки, выбор формата пресетов и фильтры.\nПока я использую стандартный профиль: мягкий контраст, точные цвета и максимум деталей.\n\n⚙️ Ожидай обновлений — я стану ещё гибче!",
         "premium": "⚡️ Кибер-прокачка\n\nС режимом PREMIUM я смогу:\n• Обрабатывать серии фото за раз\n• Генерировать пресеты в .xmp и .dng\n• Давать расширенный анализ с гистограммой\n• Работать с видео-кадрами\n\nПока этот модуль в разработке, но ты уже пользуешься базовыми супер-силами бесплатно! 🦊",
         "cancel": "🦊 Предыдущее действие отменено. Жду новое фото!",
@@ -70,6 +85,7 @@ LOCALE = {
         "main_gallery": "🦊 Твоя галерея пока пуста...",
         "main_energy": "💎 Энергия Ари: сейчас безлимитный доступ.",
         "main_generate": "🎨 Генератор изображений",
+        "main_commands": "📋 Команды",
         "lang_switched": "🦊 Язык изменён на русский 🇷🇺",
         "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую...",
         "generating": "🦊 Рисую...",
@@ -84,6 +100,21 @@ LOCALE = {
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
         "help": "📖 <b>How to focus</b>\n\n1️⃣ Send me a photo — I'll analyze mistakes and give advice.\n2️⃣ Then choose a film style, and I'll generate a Lightroom preset.\n3️⃣ After analysis, you can ask questions about the shot.\n\n🦊 If I don't respond — send /start to wake me up.\n🐾 Tip: shoot in RAW for the best quality!",
+        "commands_list": (
+            "📋 <b>Available commands</b>\n\n"
+            "/start — Wake up Ari and start chatting\n"
+            "/help — How to use\n"
+            "/commands — This list of commands\n"
+            "/menu — Main menu with buttons\n"
+            "/what — What Ari can do\n"
+            "/lang — Switch language (Russian/English)\n"
+            "/voice — Test Ari's voice (if enabled)\n"
+            "/generate — Generate an image from a description\n"
+            "/cancel — Cancel current action\n"
+            "/premium — About premium features\n"
+            "/settings — Settings (coming soon)\n"
+            "/broadcast — Broadcast message (admin only)"
+        ),
         "settings": "🛠 Lens tuning...",
         "premium": "⚡️ Cyber upgrade...",
         "cancel": "🦊 Action cancelled...",
@@ -105,6 +136,7 @@ LOCALE = {
         "main_gallery": "🦊 Your gallery is empty...",
         "main_energy": "💎 Ari Energy: unlimited",
         "main_generate": "🎨 Image Generator",
+        "main_commands": "📋 Commands",
         "lang_switched": "🦊 Language switched to English 🇬🇧",
         "generate_prompt": "🎨 Describe what you want to see...",
         "generating": "🦊 Drawing...",
@@ -214,6 +246,7 @@ def get_main_menu_keyboard(lang="ru"):
         [InlineKeyboardButton(text="🦊 " + loc["main_gallery"], callback_data="main_gallery")],
         [InlineKeyboardButton(text="💎 " + loc["main_energy"], callback_data="main_energy")],
         [InlineKeyboardButton(text="🎨 " + loc["main_generate"], callback_data="main_generate")],
+        [InlineKeyboardButton(text="📋 " + loc["main_commands"], callback_data="main_commands")],
     ])
 
 def get_style_keyboard(lang="ru", selected_styles=None):
@@ -447,24 +480,17 @@ async def cmd_help(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     help_texts = {
-        "ru": (
-            "📖 <b>Инструкция по фокусу</b>\n\n"
-            "1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n"
-            "2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n"
-            "3️⃣ После анализа можешь задать вопросы по кадру.\n\n"
-            "🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n"
-            "🐾 Совет: снимай в RAW для максимального качества!"
-        ),
-        "en": (
-            "📖 <b>How to focus</b>\n\n"
-            "1️⃣ Send me a photo — I'll analyze mistakes and give advice.\n"
-            "2️⃣ Then choose a film style, and I'll generate a Lightroom preset.\n"
-            "3️⃣ After analysis, you can ask questions about the shot.\n\n"
-            "🦊 If I don't respond — send /start to wake me up.\n"
-            "🐾 Tip: shoot in RAW for the best quality!"
-        )
+        "ru": LOCALE["ru"]["help"],
+        "en": LOCALE["en"]["help"]
     }
     await message.answer(help_texts.get(lang, help_texts["ru"]))
+
+@dp.message(Command("commands"))
+async def cmd_commands(message: Message, state: FSMContext):
+    logger.info("Команда /commands вызвана")
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await message.answer(LOCALE[lang]["commands_list"])
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
@@ -534,6 +560,13 @@ async def main_generate(callback: CallbackQuery, state: FSMContext):
     lang = data.get("lang", "ru")
     await state.set_state(PhotoStates.waiting_for_prompt)
     await callback.message.edit_text(LOCALE[lang]["generate_prompt"])
+    await callback.answer()
+
+@dp.callback_query(F.data == "main_commands")
+async def main_commands(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await callback.message.edit_text(LOCALE[lang]["commands_list"])
     await callback.answer()
 
 # ---------- Обработка фото ----------
