@@ -345,20 +345,26 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
     """
-    Синтезирует речь с игривыми настройками (без pitch).
-    Использует emotion="good" и случайную скорость.
-    При ошибке с emotion пробует без неё.
+    Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью.
     """
+    cute_prefixes = [
+        "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
+        "Ну что... ", "Эй! ", "", ""
+    ]
+    prefix = random.choice(cute_prefixes)
+    full_text = prefix + text
+
+    voice = random.choice(["alena", "oksana"])
+
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
 
-    # Параметры с emotion (основной вариант)
     params = {
-        "text": text,
+        "text": full_text,
         "lang": lang,
-        "voice": "alena",
+        "voice": voice,
         "emotion": "good",
-        "speed": str(round(random.uniform(0.9, 1.1), 1)),
+        "speed": str(round(random.uniform(0.85, 0.95), 2)),
         "format": "oggopus",
     }
 
@@ -369,7 +375,6 @@ async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
             return resp.content
         else:
             logger.error(f"TTS error with emotion: {resp.status_code} {resp.text}")
-            # Если ошибка 400 – emotion не поддерживается, пробуем без него
             if resp.status_code == 400:
                 params.pop("emotion", None)
                 params["speed"] = "1.0"
@@ -413,19 +418,19 @@ async def cmd_lang(message: Message, state: FSMContext):
 
 @dp.message(Command("voice"))
 async def test_voice(message: Message):
-    """Тест голоса: Ари произносит фразу с разными настройками."""
-    texts = [
-        "Привет! Я Ари, твоя кибер-лисичка. Мой голос стал игривее!",
-        "Ой-ёй! Ты слышишь, как я умею говорить? Это магия!",
-        "Мой объектив улыбается, а лапки дрожат от радости!",
+    """Демонстрация милого голоса Ари."""
+    phrases = [
+        "Привет! Я Ари, и мой голос стал ещё милее!",
+        "Ой, кажется, у меня мурашки по лапкам от твоего внимания!",
+        "Сегодня отличный день, чтобы сделать крутой кадр. Ты готов?"
     ]
-    for text in texts:
-        voice_bytes = await synthesize_speech(text)
+    for phrase in phrases:
+        voice_bytes = await synthesize_speech(phrase)
         if voice_bytes:
-            voice_file = BufferedInputFile(voice_bytes, filename="ari_voice.ogg")
+            voice_file = BufferedInputFile(voice_bytes, filename="ari_milaya.ogg")
             await message.answer_voice(voice_file)
         else:
-            await message.answer("😿 Не удалось синтезировать голос. Проверь права TTS.")
+            await message.answer("😿 Не получилось синтезировать голос.")
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
