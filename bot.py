@@ -328,8 +328,6 @@ async def generate_image(prompt: str) -> bytes | None:
         return None
 
 async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
-    if not VOICE_ENABLED:
-        return ""
     url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
     params = {"lang": lang, "format": "oggopus"}
@@ -346,18 +344,22 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         return ""
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
-    if not VOICE_ENABLED:
-        return None
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
-    params = {"text": text, "lang": lang, "voice": "alena", "emotion": "good", "speed": "1.0", "pitch": "0.2", "format": "oggopus"}
+    params = {
+        "text": text,
+        "lang": lang,
+        "voice": "alena",
+        "speed": "1.0",
+        "format": "oggopus",
+    }
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, data=params, timeout=30.0)
         if resp.status_code == 200:
             return resp.content
         else:
-            logger.error(f"TTS error: {resp.status_code}")
+            logger.error(f"TTS error: {resp.status_code} {resp.text}")
             return None
     except Exception as e:
         logger.error(f"TTS exception: {e}")
@@ -429,13 +431,14 @@ async def cmd_broadcast(message: Message):
 # ---------- Тестовая голосовая команда ----------
 @dp.message(Command("voice"))
 async def test_voice(message: Message):
-    text = "Привет! Я Ари, твоя кибер-лисичка. Готова анализировать фото и болтать с тобой."
+    """Тест синтеза речи: Ари произносит приветствие голосом."""
+    text = "Привет! Я Ари, твоя кибер-лисичка. Мой голос работает!"
     voice_bytes = await synthesize_speech(text)
     if voice_bytes:
-        voice_file = BufferedInputFile(voice_bytes, filename="test.ogg")
+        voice_file = BufferedInputFile(voice_bytes, filename="ari_test.ogg")
         await message.answer_voice(voice_file)
     else:
-        await message.answer("Не удалось синтезировать голос")
+        await message.answer("😿 Не удалось синтезировать голос. Проверь права TTS.")
 
 # ---------- Главное меню ----------
 @dp.callback_query(F.data == "main_focus")
@@ -483,7 +486,7 @@ async def main_generate(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(LOCALE[lang]["generate_prompt"])
     await callback.answer()
 
-# ---------- Обработка фото ----------
+# ---------- Обработка фото (в любом состоянии) ----------
 @dp.message(F.photo)
 async def handle_photo_any_state(message: Message, state: FSMContext):
     current_state = await state.get_state()
