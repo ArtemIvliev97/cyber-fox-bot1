@@ -48,9 +48,9 @@ class PhotoStates(StatesGroup):
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
-        "help": "📖 Инструкция по фокусу...",
-        "settings": "🛠 Тюнинг объектива...",
-        "premium": "⚡️ Кибер-прокачка...",
+        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
+        "settings": "🛠 Тюнинг объектива\n\nЗдесь скоро появится настройка качества обработки, выбор формата пресетов и фильтры.\nПока я использую стандартный профиль: мягкий контраст, точные цвета и максимум деталей.\n\n⚙️ Ожидай обновлений — я стану ещё гибче!",
+        "premium": "⚡️ Кибер-прокачка\n\nС режимом PREMIUM я смогу:\n• Обрабатывать серии фото за раз\n• Генерировать пресеты в .xmp и .dng\n• Давать расширенный анализ с гистограммой\n• Работать с видео-кадрами\n\nПока этот модуль в разработке, но ты уже пользуешься базовыми супер-силами бесплатно! 🦊",
         "cancel": "🦊 Предыдущее действие отменено. Жду новое фото!",
         "menu": "🦊 Главное меню Ари",
         "what": "🦊 О, я умею видеть то, что скрыто...",
@@ -83,7 +83,7 @@ LOCALE = {
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
-        "help": "📖 How to focus...",
+        "help": "📖 <b>How to focus</b>\n\n1️⃣ Send me a photo — I'll analyze mistakes and give advice.\n2️⃣ Then choose a film style, and I'll generate a Lightroom preset.\n3️⃣ After analysis, you can ask questions about the shot.\n\n🦊 If I don't respond — send /start to wake me up.\n🐾 Tip: shoot in RAW for the best quality!",
         "settings": "🛠 Lens tuning...",
         "premium": "⚡️ Cyber upgrade...",
         "cancel": "🦊 Action cancelled...",
@@ -344,15 +344,11 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         return ""
 
 def fix_ari_pronunciation(text: str) -> str:
-    """
-    Заменяет 'Ари' на 'А+ри', чтобы TTS ставила ударение на первый слог.
-    """
+    """Заменяет 'Ари' на 'А+ри', чтобы TTS ставила ударение на первый слог."""
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
-    """
-    Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью.
-    """
+    """Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью."""
     cute_prefixes = [
         "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
         "Ну что... ", "Эй! ", "", ""
@@ -447,9 +443,28 @@ async def cmd_what(message: Message, state: FSMContext):
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message, state: FSMContext):
+    logger.info("Команда /help вызвана")
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    await message.answer(LOCALE[lang]["help"])
+    help_texts = {
+        "ru": (
+            "📖 <b>Инструкция по фокусу</b>\n\n"
+            "1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n"
+            "2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n"
+            "3️⃣ После анализа можешь задать вопросы по кадру.\n\n"
+            "🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n"
+            "🐾 Совет: снимай в RAW для максимального качества!"
+        ),
+        "en": (
+            "📖 <b>How to focus</b>\n\n"
+            "1️⃣ Send me a photo — I'll analyze mistakes and give advice.\n"
+            "2️⃣ Then choose a film style, and I'll generate a Lightroom preset.\n"
+            "3️⃣ After analysis, you can ask questions about the shot.\n\n"
+            "🦊 If I don't respond — send /start to wake me up.\n"
+            "🐾 Tip: shoot in RAW for the best quality!"
+        )
+    }
+    await message.answer(help_texts.get(lang, help_texts["ru"]))
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
