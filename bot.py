@@ -328,6 +328,8 @@ async def generate_image(prompt: str) -> bytes | None:
         return None
 
 async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
+    if not VOICE_ENABLED:
+        return ""
     url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
     params = {"lang": lang, "format": "oggopus"}
@@ -344,6 +346,8 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         return ""
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
+    if not VOICE_ENABLED:
+        return None
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
     params = {"text": text, "lang": lang, "voice": "alena", "emotion": "good", "speed": "1.0", "pitch": "0.2", "format": "oggopus"}
@@ -362,7 +366,7 @@ async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
 async def save_user(user_id: int):
     all_users.add(user_id)
 
-# ---------- Обработчики команд (без изменений) ----------
+# ---------- Обработчики команд ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -422,6 +426,17 @@ async def cmd_broadcast(message: Message):
             logger.warning(f"Не удалось отправить пользователю {user_id}: {e}")
     await message.answer(f"Рассылка завершена. Отправлено {success}/{len(all_users)} пользователям.")
 
+# ---------- Тестовая голосовая команда ----------
+@dp.message(Command("voice"))
+async def test_voice(message: Message):
+    text = "Привет! Я Ари, твоя кибер-лисичка. Готова анализировать фото и болтать с тобой."
+    voice_bytes = await synthesize_speech(text)
+    if voice_bytes:
+        voice_file = BufferedInputFile(voice_bytes, filename="test.ogg")
+        await message.answer_voice(voice_file)
+    else:
+        await message.answer("Не удалось синтезировать голос")
+
 # ---------- Главное меню ----------
 @dp.callback_query(F.data == "main_focus")
 async def main_focus(callback: CallbackQuery, state: FSMContext):
@@ -468,7 +483,7 @@ async def main_generate(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(LOCALE[lang]["generate_prompt"])
     await callback.answer()
 
-# ---------- Обработка фото (в любом состоянии) ----------
+# ---------- Обработка фото ----------
 @dp.message(F.photo)
 async def handle_photo_any_state(message: Message, state: FSMContext):
     current_state = await state.get_state()
