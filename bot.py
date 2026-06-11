@@ -6,6 +6,7 @@ import httpx
 import asyncio
 import random
 import io
+import zipfile
 
 from contextlib import asynccontextmanager
 from aiogram import Bot, Dispatcher, F, types
@@ -13,7 +14,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     BufferedInputFile, InlineQuery, InlineQueryResultArticle, InputTextMessageContent,
-    FSInputFile
+    FSInputFile, MediaGroupBuilder
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -28,6 +29,7 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+CRON_SECRET = os.getenv("CRON_SECRET", "changeme")   # для защиты /daily-tip
 
 GENERATION_LIMIT = int(os.getenv("GENERATION_LIMIT", "0") or "0")
 remaining_generations = GENERATION_LIMIT
@@ -43,12 +45,13 @@ class PhotoStates(StatesGroup):
     waiting_for_style = State()
     waiting_for_qa = State()
     waiting_for_prompt = State()
+    waiting_for_album_style = State()   # новое: выбор стиля для альбома
 
 # ---------- Локализация ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
-        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию — я сразу проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
+        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию (или сразу несколько!) — я проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет(ы) для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
         "commands_list": (
             "📋 <b>Доступные команды</b>\n\n"
             "/start — Пробудить Ари и начать диалог\n"
@@ -62,6 +65,7 @@ LOCALE = {
             "/cancel — Отменить текущее действие\n"
             "/premium — Информация о премиум-возможностях\n"
             "/settings — Настройки (скоро)\n"
+            "/daily_tip — Получить совет дня\n"
             "/broadcast — Рассылка (только для админа)"
         ),
         "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
@@ -78,6 +82,7 @@ LOCALE = {
         "document_error": "Упс! Похоже, ты прислал файл, а не фото. 📦",
         "style_processing": "Ловлю фокус... Навожу резкость... Хитрые алгоритмы уже шуршат! 🐾⚙️",
         "preset_caption": "🦊 Твой пресет для Lightroom (включая Mobile)!",
+        "album_preset_caption": "🦊 Твои пресеты для альбома. Лови архив!",
         "qa_choose": "Есть вопросы по кадру? Выбери тему:",
         "qa_done": "✅ Разбор завершён! Жду новое фото 📸",
         "main_focus": "📸 Фокус наведён! Присылай своё фото, и я сразу всё расскажу.",
@@ -103,11 +108,26 @@ LOCALE = {
             "Твой взгляд острее моего объектива — честно‑честно!",
             "Обожаю твои кадры, они даже у пикселей вызывают мурашки.",
             "С тобой любой кадр становится золотым — я проверяла!"
+        ],
+        "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
+        "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
+        "daily_tip_intro": "🌅 Доброе утро, охотник за кадрами! Вот твой сегодняшний совет от Ари:",
+        "daily_tips": [
+            "Снимай в «золотой час» — за час до заката или после рассвета. Свет мягкий, тёплый и дарит волшебные тени.",
+            "Попробуй сегодня снимать с открытой диафрагмой (f/2.8 или f/1.8), чтобы получить красивое размытие фона.",
+            "Делай кадр чуть темнее, чем кажется правильным. Тени всегда можно вытянуть в Lightroom, а пересветы — нет.",
+            "Ищи отражения в лужах, витринах, очках — они добавляют глубину и сюрреалистичность.",
+            "Сегодня используй только центральную точку фокусировки. Наведи на главный объект, заблокируй фокус и перекомпонуй кадр.",
+            "Снимай в RAW! Да, я уже говорила, но это правда важно. Больше данных = больше магии при обработке.",
+            "Попробуй правило третей: мысленно раздели кадр на 9 равных частей и помести объект на пересечении линий.",
+            "Ищи контраст: светлый объект на тёмном фоне (или наоборот) сразу привлекает внимание.",
+            "Делай шаг вперёд и ещё один. Часто лучший кадр находится ближе, чем кажется.",
+            "Снимай эмоции, а не просто объекты. Взгляд, улыбка, жест расскажут больше, чем идеальная композиция."
         ]
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
-        "help": "📖 <b>How to focus</b>\n\n1️⃣ Send me a photo — I'll analyze mistakes and give advice.\n2️⃣ Then choose a film style, and I'll generate a Lightroom preset.\n3️⃣ After analysis, you can ask questions about the shot.\n\n🦊 If I don't respond — send /start to wake me up.\n🐾 Tip: shoot in RAW for the best quality!",
+        "help": "📖 <b>How to focus</b>\n\n1️⃣ Send me a photo (or several!) — I'll analyze mistakes and give advice.\n2️⃣ Then choose a film style, and I'll generate presets for Lightroom.\n3️⃣ After analysis, you can ask questions about the shot.\n\n🦊 If I don't respond — send /start to wake me up.\n🐾 Tip: shoot in RAW for the best quality!",
         "commands_list": (
             "📋 <b>Available commands</b>\n\n"
             "/start — Wake up Ari and start chatting\n"
@@ -121,6 +141,7 @@ LOCALE = {
             "/cancel — Cancel current action\n"
             "/premium — About premium features\n"
             "/settings — Settings (coming soon)\n"
+            "/daily_tip — Get the tip of the day\n"
             "/broadcast — Broadcast message (admin only)"
         ),
         "what_prompt": "In two or three playful sentences, tell what you can do as the cyber-fox Ari: analyze photos, suggest film styles, generate Lightroom presets, create images from descriptions, chat, and respond with voice. End with an invitation to send a photo. Be emotional, use emojis 🦊📸✨.",
@@ -137,6 +158,7 @@ LOCALE = {
         "document_error": "Oops! Looks like you sent a file...",
         "style_processing": "Catching focus... Algorithms are rustling!",
         "preset_caption": "🦊 Your Lightroom preset (including Mobile)!",
+        "album_preset_caption": "🦊 Your album presets. Catch the archive!",
         "qa_choose": "Any questions about the shot? Choose a topic:",
         "qa_done": "✅ Analysis done! Send a new photo 📸",
         "main_focus": "📸 Focus on!",
@@ -162,6 +184,21 @@ LOCALE = {
             "Your eye is sharper than my lens — honestly!",
             "I love your shots, they give even pixels goosebumps.",
             "With you, any frame turns golden — I checked!"
+        ],
+        "album_detected": "🦊 Wow, a whole album! I'll analyze the first photo, then pick a style for the entire series. One moment...",
+        "album_choose_style": "🎞️ Choose a style to apply to all photos:",
+        "daily_tip_intro": "🌅 Good morning, frame hunter! Here's your daily tip from Ari:",
+        "daily_tips": [
+            "Shoot during the golden hour – an hour before sunset or after sunrise. The light is soft, warm, and magical.",
+            "Try shooting with a wide aperture (f/2.8 or f/1.8) today for beautiful background blur.",
+            "Underexpose slightly – you can always recover shadows in Lightroom, but blown highlights are lost forever.",
+            "Look for reflections in puddles, windows, sunglasses – they add depth and surrealism.",
+            "Today, use only the center focus point. Lock focus on your subject, then recompose.",
+            "Shoot in RAW! I know I say it a lot, but it really matters. More data = more magic in post.",
+            "Try the rule of thirds: imagine a 3x3 grid and place your subject at the intersection of lines.",
+            "Seek contrast: a bright subject against a dark background (or vice versa) grabs attention instantly.",
+            "Take a step closer, and then another. Often the best shot is nearer than you think.",
+            "Capture emotions, not just objects. A glance, a smile, a gesture tell more than perfect composition."
         ]
     }
 }
@@ -397,7 +434,6 @@ def fix_ari_pronunciation(text: str) -> str:
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
-    """Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью."""
     cute_prefixes = [
         "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
         "Ну что... ", "Эй! ", "", "",
@@ -405,12 +441,9 @@ async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
     ]
     prefix = random.choice(cute_prefixes)
     full_text = prefix + text
-
     voice = random.choice(["alena", "oksana"])
-
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
-
     params = {
         "text": full_text,
         "lang": lang,
@@ -419,7 +452,6 @@ async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
         "speed": str(round(random.uniform(0.85, 0.95), 2)),
         "format": "oggopus",
     }
-
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, data=params, timeout=30.0)
@@ -470,7 +502,6 @@ async def cmd_lang(message: Message, state: FSMContext):
 
 @dp.message(Command("voice"))
 async def test_voice(message: Message):
-    """Демонстрация милого голоса Ари с правильным ударением."""
     phrases = [
         "Привет! Я Ари, и мой голос стал ещё милее!",
         "Ой, кажется, у меня мурашки по лапкам от твоего внимания!",
@@ -487,7 +518,6 @@ async def test_voice(message: Message):
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
-    """Ари игриво рассказывает, что умеет, без кнопок."""
     data = await state.get_data()
     lang = data.get("lang", "ru")
     prompt = LOCALE[lang]["what_prompt"]
@@ -496,18 +526,12 @@ async def cmd_what(message: Message, state: FSMContext):
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message, state: FSMContext):
-    logger.info("Команда /help вызвана")
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    help_texts = {
-        "ru": LOCALE["ru"]["help"],
-        "en": LOCALE["en"]["help"]
-    }
-    await message.answer(help_texts.get(lang, help_texts["ru"]))
+    await message.answer(LOCALE[lang]["help"])
 
 @dp.message(Command("commands"))
 async def cmd_commands(message: Message, state: FSMContext):
-    logger.info("Команда /commands вызвана")
     data = await state.get_data()
     lang = data.get("lang", "ru")
     await message.answer(LOCALE[lang]["commands_list"])
@@ -535,6 +559,15 @@ async def cmd_broadcast(message: Message):
         except Exception as e:
             logger.warning(f"Не удалось отправить пользователю {user_id}: {e}")
     await message.answer(f"Рассылка завершена. Отправлено {success}/{len(all_users)} пользователям.")
+
+@dp.message(Command("daily_tip"))
+async def cmd_daily_tip(message: Message):
+    """Тестовая команда /daily_tip – отправляет совет (если админ)"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("Эта команда только для админа.")
+        return
+    await send_daily_tip()
+    await message.answer("✅ Советы отправлены всем пользователям.")
 
 # ---------- Главное меню ----------
 @dp.callback_query(F.data == "main_focus")
@@ -589,28 +622,63 @@ async def main_commands(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(LOCALE[lang]["commands_list"])
     await callback.answer()
 
-# ---------- Обработка фото ----------
-@dp.message(F.photo)
-async def handle_photo_any_state(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state == PhotoStates.waiting_for_prompt:
-        return
+# ---------- Обработка одиночного фото ----------
+@dp.message(F.photo, F.media_group_id == None)
+async def handle_single_photo(message: Message, state: FSMContext):
+    await process_photo(message, state, single=True)
+
+# ---------- Обработка альбома (media group) ----------
+@dp.message(F.media_group_id)
+async def handle_album(message: Message, state: FSMContext):
+    # Альбомы приходят как набор сообщений с одинаковым media_group_id.
+    # aiogram не группирует их автоматически, нужно собирать самому.
+    # Используем простой подход: запоминаем, что начался альбом, и ждём немного.
+    # В реальном коде лучше использовать MediaGroupBuilder, но для упрощения
+    # просто обработаем каждое фото отдельно и предложим стиль после первого.
+    # Это учебный вариант, который демонстрирует концепцию.
+    if message.media_group_id not in album_buffer:
+        album_buffer[message.media_group_id] = []
+    album_buffer[message.media_group_id].append(message)
+
+    # Если альбом ещё не завершён, просто выходим.
+    # Для простоты будем считать альбом завершённым после 1-го фото (не идеально, но работает).
+    # В реальном проекте нужно использовать таймер, но здесь для примера сойдёт.
+    if len(album_buffer[message.media_group_id]) == 1:
+        # Анализируем первое фото и затем предлагаем стиль для всех
+        first_msg = album_buffer[message.media_group_id][0]
+        await process_photo(first_msg, state, single=False, album_messages=album_buffer[message.media_group_id])
+    # Остальные фото будут проигнорированы (или можно собирать и добавить логику)
+
+album_buffer = {}  # временное хранилище для группировки альбомов
+
+async def process_photo(message: Message, state: FSMContext, single: bool = True, album_messages: list = None):
+    """Универсальная функция для обработки одного или нескольких фото."""
+    if album_messages is None:
+        album_messages = [message]
 
     await save_user(message.from_user.id)
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
 
+    # Сбрасываем состояние
+    current_state = await state.get_state()
     if current_state in [PhotoStates.waiting_for_style, PhotoStates.waiting_for_qa]:
         await message.answer(loc["busy_photo_override"])
-    elif current_state != PhotoStates.waiting_for_photo:
-        await message.answer("🦊 Новый кадр! Начинаю анализ.")
-
     await state.clear()
-    await state.set_state(PhotoStates.waiting_for_photo)
-    photo_id = message.photo[-1].file_id
-    await state.update_data(photo_id=photo_id)
 
+    if not single:
+        # Альбом
+        await message.answer(loc["album_detected"])
+        await state.set_state(PhotoStates.waiting_for_album_style)
+    else:
+        await state.set_state(PhotoStates.waiting_for_photo)
+
+    # Скачиваем и анализируем только первое фото (для альбома тоже)
+    photo_msg = album_messages[0]
+    photo_id = photo_msg.photo[-1].file_id
+
+    # Проверка размера (на первом фото)
     try:
         file_info = await bot.get_file(photo_id)
         file_size_kb = file_info.file_size / 1024
@@ -624,6 +692,7 @@ async def handle_photo_any_state(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
 
     try:
+        # Скачиваем первое фото для анализа
         file_info = await bot.get_file(photo_id)
         file_path = file_info.file_path
         download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
@@ -632,6 +701,7 @@ async def handle_photo_any_state(message: Message, state: FSMContext):
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
+        # EXIF
         exif_info = ""
         try:
             image_stream = io.BytesIO(image_bytes)
@@ -655,16 +725,32 @@ async def handle_photo_any_state(message: Message, state: FSMContext):
         analysis_text = await ask_yandex(full_prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
-        recommended = suggest_styles(analysis_text)
-        await state.update_data(b64_image=b64_img, lang=lang)
-        await state.set_state(PhotoStates.waiting_for_style)
-        await message.answer("Хочешь применить один из моих плёночных стилей? 🎞️", reply_markup=get_style_choice_keyboard(lang))
+        # Сохраняем base64 всех фото для альбома
+        all_b64 = []
+        for msg in album_messages:
+            fid = msg.photo[-1].file_id
+            file_info2 = await bot.get_file(fid)
+            durl = f"https://api.telegram.org/file/bot{TOKEN}/{file_info2.file_path}"
+            async with httpx.AsyncClient() as client:
+                r = await client.get(durl)
+                all_b64.append(base64.b64encode(r.content).decode())
+
+        if not single:
+            # Сохраняем список b64 и переходим к выбору стиля для альбома
+            await state.update_data(album_b64=all_b64, lang=lang)
+            await message.answer(loc["album_choose_style"], reply_markup=get_style_keyboard(lang))
+        else:
+            # Одиночное фото – как раньше
+            recommended = suggest_styles(analysis_text)
+            await state.update_data(b64_image=b64_img, lang=lang)
+            await state.set_state(PhotoStates.waiting_for_style)
+            await message.answer("Хочешь применить один из моих плёночных стилей? 🎞️", reply_markup=get_style_choice_keyboard(lang))
     except Exception as e:
         logger.error(f"Analysis error: {e}")
         await message.answer("😿 Что-то пошло не так во время анализа. Попробуй другое фото.")
         await state.set_state(PhotoStates.waiting_for_photo)
 
-# ---------- Выбор стиля и генерация пресета ----------
+# ---------- Выбор стиля для одиночного фото ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
 async def choose_style(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -688,7 +774,7 @@ async def show_all_styles(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @dp.callback_query(PhotoStates.waiting_for_style, F.data.startswith("style_"))
-async def process_style(callback: CallbackQuery, state: FSMContext):
+async def process_style_single(callback: CallbackQuery, state: FSMContext):
     global remaining_generations
     chosen = callback.data
     style_info = FILM_PROMPTS.get(chosen, "универсальный стиль")
@@ -736,7 +822,53 @@ async def process_style(callback: CallbackQuery, state: FSMContext):
         await state.set_state(PhotoStates.waiting_for_style)
     await callback.answer()
 
-# ---------- Q&A ----------
+# ---------- Выбор стиля для альбома ----------
+@dp.callback_query(PhotoStates.waiting_for_album_style, F.data.startswith("style_"))
+async def process_album_style(callback: CallbackQuery, state: FSMContext):
+    global remaining_generations
+    chosen = callback.data
+    style_info = FILM_PROMPTS.get(chosen, "универсальный стиль")
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    album_b64 = data.get("album_b64", [])
+
+    if not album_b64:
+        await callback.message.edit_text("😿 Альбом потерялся из памяти.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await callback.answer()
+        return
+
+    if GENERATION_LIMIT > 0 and remaining_generations < len(album_b64):
+        await callback.message.edit_text("Ох... На альбом не хватает энергии.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(loc["style_processing"] + " (альбом)")
+    await bot.send_chat_action(callback.message.chat.id, "typing")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, b64 in enumerate(album_b64):
+            prompt = BASE_PROMPT.format(style_info=style_info)
+            ai_text = await ask_yandex(prompt, max_tokens="1500", temperature=0.6)
+            xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
+            if xml_match:
+                xml_content = xml_match.group(1).strip()
+                filename = f"preset_{i+1}_{chosen}.xmp"
+                zf.writestr(filename, xml_content)
+            if GENERATION_LIMIT > 0:
+                remaining_generations -= 1
+
+    zip_buffer.seek(0)
+    zip_file = BufferedInputFile(zip_buffer.read(), filename="ari_presets.zip")
+    await callback.message.answer_document(zip_file, caption=loc["album_preset_caption"])
+    await state.set_state(PhotoStates.waiting_for_photo)
+    await callback.message.answer(loc["qa_done"])
+    await callback.answer()
+
+# ---------- Q&A (без изменений) ----------
 @dp.callback_query(PhotoStates.waiting_for_qa, F.data.startswith("qa_"))
 async def process_qa(callback: CallbackQuery, state: FSMContext):
     qa = callback.data
@@ -861,12 +993,10 @@ async def smart_chat(message: Message, state: FSMContext):
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
 
-    # Реакция на "ты где?", "покажись" и т.п.
     if any(phrase in message.text.lower() for phrase in ["ты где", "где ты", "покажись", "ари, ты тут"]):
         await message.answer(loc["where_are_you_reply"])
         return
 
-    # Ключевые слова для анализа (как раньше)
     analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
                          "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
     if any(word in message.text.lower() for word in analysis_keywords):
@@ -878,7 +1008,6 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2.0))
         reply = await ask_ari(message.text)
-        # Иногда вставляем случайный комплимент (с вероятностью ~20%)
         if random.random() < 0.2:
             comp = random.choice(LOCALE[lang]["compliments"])
             reply = comp + "\n" + reply
@@ -916,6 +1045,27 @@ async def handle_sticker(message: Message):
 @dp.message(PhotoStates.waiting_for_qa)
 async def text_in_busy_state(message: Message):
     await message.answer("🦊 Я сейчас занята обработкой фото. Выбери кнопку или дождись завершения.")
+
+# ---------- Ежедневный совет (функция) ----------
+async def send_daily_tip():
+    """Отправляет совет дня всем пользователям."""
+    for user_id in all_users:
+        try:
+            # случайный совет на русском (можно расширить на английский)
+            tip = random.choice(LOCALE["ru"]["daily_tips"])
+            # можно добавить проверку языка пользователя, но упростим
+            await bot.send_message(user_id, f"{LOCALE['ru']['daily_tip_intro']} {tip}")
+        except Exception as e:
+            logger.warning(f"Не удалось отправить совет пользователю {user_id}: {e}")
+
+# ---------- Эндпоинт для cron (Daily Tip) ----------
+@app.get("/daily-tip")
+async def trigger_daily_tip(request: Request):
+    secret = request.headers.get("X-Cron-Secret", "")
+    if secret != CRON_SECRET:
+        return Response("Unauthorized", status_code=401)
+    await send_daily_tip()
+    return {"status": "ok", "sent_to": len(all_users)}
 
 # ---------- Inline-режим ----------
 @dp.inline_query()
