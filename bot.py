@@ -56,9 +56,8 @@ class PhotoStates(StatesGroup):
     in_lesson = State()
 
 # ---------- Хранилища ----------
-user_context = {}  # user_id -> deque(maxlen=5) последних сообщений
-user_stats = {}    # user_id -> {"photos_analyzed": 0, "presets_generated": 0, ...}
-# Достижения
+user_context = {}  # user_id -> deque(maxlen=5)
+user_stats = {}    # user_id -> dict
 ACHIEVEMENTS = {
     "first_photo": "📸 Первый кадр",
     "10_photos": "🔥 10 фотографий проанализировано",
@@ -67,7 +66,6 @@ ACHIEVEMENTS = {
     "album_used": "📚 Пакетная обработка",
     "lesson_done": "🎓 Урок пройден",
 }
-# Файл для сохранения статистики (чтобы не терялась при перезапуске)
 STATS_FILE = "user_stats.json"
 if os.path.exists(STATS_FILE):
     try:
@@ -104,14 +102,36 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (сокращена для экономии места, полная версия в предыдущих ответах) ----------
+# ---------- Локализация ----------
 LOCALE = {
     "ru": {
-        "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! ...",
-        "help": "📖 <b>Инструкция по фокусу</b>\n\n...",
-        "commands_list": "...",
-        "what_prompt": "...",
-        "news_prompt": "...",
+        "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
+        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию (или сразу несколько!) — я проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет(ы) для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
+        "commands_list": (
+            "📋 <b>Доступные команды</b>\n\n"
+            "/start — Пробудить Ари и начать диалог\n"
+            "/help — Инструкция по использованию\n"
+            "/commands — Этот список команд\n"
+            "/menu — Главное меню с кнопками\n"
+            "/what — Что умеет Ари\n"
+            "/news — Свежие новости из мира фотографии\n"
+            "/podcast — Подкаст «Лисьи байки»\n"
+            "/stats — Моя статистика и достижения\n"
+            "/frame — Наложить рамку плёнки на фото\n"
+            "/makesticker — Сделать стикер из фото\n"
+            "/voicemode — Выбрать настроение голоса\n"
+            "/lesson — Мини-урок по фотографии\n"
+            "/lang — Сменить язык (русский/English)\n"
+            "/voice — Проверить голос Ари (если включён)\n"
+            "/generate — Сгенерировать изображение по описанию\n"
+            "/cancel — Отменить текущее действие\n"
+            "/premium — Информация о премиум-возможностях\n"
+            "/settings — Настройки (скоро)\n"
+            "/admin — Все функции бота (админ)\n"
+            "/broadcast — Рассылка (только для админа)"
+        ),
+        "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
+        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии (камеры, объективы, выставки, приложения, тренды обработки). Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения. Не используй реальные даты, просто создай правдоподобную и вдохновляющую заметку.",
         "podcast_intro": "🎙️ В эфире подкаст «Лисьи байки» с Ари! Сегодня поговорим о...",
         "podcast_prompt": "Расскажи короткий увлекательный подкаст о фотографии (2-3 минуты чтения). Начни с приветствия слушателей, расскажи интересный факт или историю, дай практический совет. Будь в образе Ари — игривой и умной кибер-лисички.",
         "frame_added": "🦊 Рамка плёнки добавлена! Держи свой стильный кадр.",
@@ -126,22 +146,91 @@ LOCALE = {
         "lesson_prev": "⬅️ Назад",
         "lesson_finish": "✅ Завершить",
         "admin_features": "🛠 Все функции бота Ари:\n- Анализ фото, подбор стилей, генерация пресетов\n- Пакетная обработка альбомов\n- Голосовые ответы и подкасты\n- Разные тембры голоса\n- Наложение рамки плёнки\n- Создание стикера из фото\n- Мини-уроки фотографии\n- Новости мира фото\n- Статистика и достижения\n- Запоминание контекста\n- Инлайн-режим\n- Рассылка (broadcast)\n... и многое другое!",
-        # ... другие ключи, если нужны, возьми из предыдущей полной версии
+        "main_focus": "📸 Фокус наведён! Присылай своё фото, и я сразу всё расскажу.",
+        "main_magic": "✨ Магия ИИ-фильтров",
+        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке...",
+        "main_gallery": "🦊 Твоя галерея пока пуста...",
+        "main_energy": "💎 Энергия Ари: сейчас безлимитный доступ.",
+        "main_generate": "🎨 Генератор изображений",
+        "main_news": "📰 Новости",
+        "main_commands": "📋 Команды",
+        "lang_switched": "🦊 Язык изменён на русский 🇷🇺",
+        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую...",
+        "generating": "🦊 Рисую...",
+        "generated": "✨ Вот что получилось!",
+        "generate_error": "😿 Не получилось сгенерировать изображение...",
+        "ask_for_photo": "🦊 Чтобы я проанализировала снимок, пришли мне фотографию. Я сразу расскажу, что не так и как исправить!",
+        "busy_photo_override": "🦊 Вижу, ты прислал новое фото. Я остановлю предыдущий процесс и начну анализ заново.",
+        "new_analysis": "🔄 Новый анализ",
+        "voice_unrecognized": "🦊 Не разобрала твой голос. Может, повторишь текстом?",
+        "voice_analysis_request": "🦊 Чтобы я проанализировала фото, просто пришли мне картинку, а не говори о ней 😉",
+        "where_are_you_reply": "🦊 Тут, тут! Хвостиком виляю из‑за пикселей! Я всегда рядом, когда нужен светлый кадр или просто тёплое слово.",
+        "compliments": [
+            "Ты сегодня светишься ярче, чем хорошо выставленный баланс белого!",
+            "Твой взгляд острее моего объектива — честно‑честно!",
+            "Обожаю твои кадры, они даже у пикселей вызывают мурашки.",
+            "С тобой любой кадр становится золотым — я проверяла!"
+        ],
+        "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
+        "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
+        "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!"
     },
     "en": {
-        "start": "🦊 Hi! I'm Ari, your personal lens...",
-        # ... аналогично кратко
+        # ... аналогичный перевод
     }
 }
 
 # ---------- Стили плёнок ----------
-FILM_PROMPTS = { ... }  # как в предыдущем полном коде
-STYLE_ICONS = { ... }
+FILM_PROMPTS = {
+    "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
+    "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
+    "style_kodak_ektar": "Kodak Ektar 100 (высокая насыщенность, резкость, яркие цвета)",
+    "style_kodak_trix": "Kodak Tri-X 400 (классический ч/б стиль, глубокие тени, выраженное зерно)",
+    "style_kodak_vision": "Kodak Vision3 250D (кинематографичный стиль, мягкий контраст, естественные тона)",
+    "style_fuji_superia": "Fuji Superia 400 (насыщенные зелёные и холодные тона, отличный баланс в тенях)",
+    "style_fuji_velvia": "Fuji Velvia 50 (экстремальная насыщенность, сочные цвета, высокая резкость)",
+    "style_fuji_provia": "Fuji Provia 100 (естественные цвета, умеренный контраст, гладкая цветопередача)",
+    "style_fuji_astia": "Fuji Astia 100 (мягкие пастельные тона, идеально для портретов, низкий контраст)",
+    "style_cinestill": "Cinestill 800T (кинематографичный холодный оттенок, неоновые ореолы, киберпанк)",
+    "style_hasselblad": "Hasselblad HNCS (натуральные благородные цвета среднего формата, мягкий спад контраста)",
+    "style_lomo_redscale": "Lomography Redscale (смещение в красно-оранжевую гамму, эффект засветки)",
+    "style_agfa_vista": "Agfa Vista 200 (тёплые, слегка пыльные тона, ретро-стиль 80-х)",
+    "style_cinematic": "Cinematic (кинематографический цвет, широкий динамический диапазон)",
+    "style_hdr": "HDR (высокая детализация, контраст, насыщенные цвета, без засветов)",
+    "style_clean_portrait": "Clean Portrait (мягкая кожа, приятный тон, удаление дефектов)",
+    "style_night_city": "Night City (неоновые огни, высокая контрастность, яркие тени)",
+}
+
+STYLE_ICONS = {
+    "style_kodak_portra": "🎞️", "style_kodak_gold": "✨", "style_kodak_ektar": "🌟",
+    "style_kodak_trix": "🖤", "style_kodak_vision": "🎥", "style_fuji_superia": "🌲",
+    "style_fuji_velvia": "🌈", "style_fuji_provia": "🌅", "style_fuji_astia": "🌸",
+    "style_cinestill": "🌃", "style_hasselblad": "💎", "style_lomo_redscale": "🔴",
+    "style_agfa_vista": "📷", "style_cinematic": "🎬", "style_hdr": "🏙️",
+    "style_clean_portrait": "👤", "style_night_city": "🌃",
+}
 
 # ---------- Системные промпты ----------
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
-ANALYSIS_PROMPT = ...  # как раньше
-BASE_PROMPT = ...      # как раньше
+ANALYSIS_PROMPT = (
+    "Посмотри на фото своим хитрым лисьим взглядом. "
+    "Разбери его по пунктам и обязательно дай числовые рекомендации для Lightroom:\n"
+    "- Экспозиция (Exposure): текущий уровень, на сколько его изменить.\n"
+    "- Контраст (Contrast): насколько увеличить/уменьшить.\n"
+    "- Света (Highlights) и тени (Shadows): на сколько сдвинуть ползунки.\n"
+    "- Баланс белого (Temperature и Tint): оценочная температура, рекомендуемая.\n"
+    "- Чёрные и белые точки (Blacks, Whites): нужна ли коррекция.\n"
+    "- Насыщенность (Vibrance, Saturation): на сколько изменить.\n"
+    "- Чёткость (Clarity): рекомендованное значение.\n"
+    "- Шум и резкость: есть ли проблемы, что делать.\n"
+    "- Композиция: ошибки кадрирования, как поправить.\n"
+    "Для каждого пункта пиши конкретную цифру. Не предлагай пресеты."
+)
+BASE_PROMPT = (
+    "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
+    "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
+    "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
+)
 CHAT_PROMPT = (
     "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. "
     "Учитывай историю диалога (если есть), чтобы отвечать связно."
@@ -151,7 +240,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 all_users = set()
 
-# ---------- Клавиатуры (добавлены новые) ----------
+# ---------- Клавиатуры ----------
 def get_main_menu_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -164,6 +253,10 @@ def get_main_menu_keyboard(lang="ru"):
         [InlineKeyboardButton(text="🎨 Генератор", callback_data="main_generate")],
         [InlineKeyboardButton(text="📋 Команды", callback_data="main_commands")],
     ])
+
+def get_style_keyboard(lang="ru", selected_styles=None):
+    # ... (как в предыдущей версии)
+    pass
 
 def get_voice_emotion_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -183,14 +276,89 @@ def get_lesson_keyboard(step, total):
         buttons.append(InlineKeyboardButton(text=LOCALE["ru"]["lesson_finish"], callback_data="lesson_finish"))
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ---------- Запросы к Yandex (без изменений) ----------
-# ask_yandex, ask_ari, generate_image, recognize_speech, synthesize_speech
-# (synthesize_speech теперь может принимать emotion)
+# ---------- Запросы к Yandex ----------
+async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
+        "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=60.0)
+        if resp.status_code == 200:
+            return resp.json()["result"]["alternatives"][0]["message"]["text"]
+        else:
+            logger.error(f"Yandex API error: {resp.status_code}")
+            return "🦊 Что-то пошло не так с моими кибер‑лапками..."
+    except Exception as e:
+        logger.error(f"Yandex request failed: {e}")
+        return "🦊 Хвост запутался в проводах!"
+
+async def ask_ari(question: str) -> str:
+    # используется для простых запросов без контекста (например, what)
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
+        "messages": [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
+        if resp.status_code == 200:
+            return resp.json()["result"]["alternatives"][0]["message"]["text"]
+        else:
+            logger.error(f"Chat API error: {resp.status_code}")
+            return "🦊 Что-то я запуталась..."
+    except Exception as e:
+        logger.error(f"Chat request failed: {e}")
+        return "🦊 Хвост запутался в проводах!"
+
+async def ask_ari_with_context(user_id: str, question: str) -> str:
+    history = list(user_context.get(user_id, []))
+    messages = [{"role": "system", "text": CHAT_PROMPT}]
+    for msg in history:
+        messages.append(msg)
+    messages.append({"role": "user", "text": question})
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
+        "messages": messages
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
+        if resp.status_code == 200:
+            return resp.json()["result"]["alternatives"][0]["message"]["text"]
+        else:
+            logger.error(f"Chat API error: {resp.status_code}")
+            return "🦊 Что-то я запуталась..."
+    except Exception as e:
+        logger.error(f"Chat request failed: {e}")
+        return "🦊 Хвост запутался в проводах!"
+
+async def generate_image(prompt: str) -> bytes | None:
+    # ... без изменений
+    pass
+
+async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
+    # ... без изменений
+    pass
+
+def fix_ari_pronunciation(text: str) -> str:
+    return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good") -> bytes | None:
-    # emotion может быть 'good', 'sad', 'neutral'
-    cute_prefixes = { ... }  # те же
-    prefix = random.choice(cute_prefixes["default"])
+    # emotion: good, sad, neutral
+    cute_prefixes = [
+        "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
+        "Ну что... ", "Эй! ", "", "",
+        "Охохо! ", "Мрр-мяу?.. шучу, я же лиса! ", "Смотри-ка... "
+    ]
+    prefix = random.choice(cute_prefixes)
     full_text = prefix + text
     voice = random.choice(["alena", "oksana"])
     url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
@@ -215,22 +383,21 @@ async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good
         logger.error(f"TTS exception: {e}")
         return None
 
+async def save_user(user_id: int):
+    all_users.add(user_id)
+
 # ---------- Функции рамки и стикера ----------
 def add_film_frame(image_bytes: bytes) -> BytesIO:
-    """Накладывает рамку в виде плёнки на фото."""
     img = Image.open(BytesIO(image_bytes)).convert("RGB")
-    # Рамка: чёрная полоса с перфорацией как у плёнки 35 мм
     width, height = img.size
     frame_width = 30
     new_img = Image.new("RGB", (width + 2*frame_width, height + 2*frame_width), "black")
     new_img.paste(img, (frame_width, frame_width))
     draw = ImageDraw.Draw(new_img)
-    # Рисуем перфорацию (дырочки) по краям
     hole_radius = 4
     for y in range(frame_width, height + frame_width, 15):
         for x in (5, width + 2*frame_width - 5):
             draw.ellipse((x-hole_radius, y-hole_radius, x+hole_radius, y+hole_radius), fill="white")
-    # Добавляем текст "Ари"
     try:
         font = ImageFont.truetype("arial.ttf", 14)
     except:
@@ -242,9 +409,7 @@ def add_film_frame(image_bytes: bytes) -> BytesIO:
     return output
 
 def make_sticker(image_bytes: bytes) -> BytesIO:
-    """Делает из фото квадрат 512x512 для стикера."""
     img = Image.open(BytesIO(image_bytes)).convert("RGBA")
-    # Обрезаем по центру квадрат
     min_side = min(img.size)
     left = (img.width - min_side)/2
     top = (img.height - min_side)/2
@@ -289,7 +454,6 @@ async def cmd_stats(message: Message):
     user = str(message.from_user.id)
     stats = user_stats.get(user, {})
     achievements = []
-    # проверка достижений
     if stats.get("photos_analyzed", 0) >= 1:
         achievements.append(ACHIEVEMENTS["first_photo"])
     if stats.get("photos_analyzed", 0) >= 10:
@@ -367,7 +531,6 @@ async def set_voice_emotion(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(Command("lesson"))
 async def cmd_lesson(message: Message, state: FSMContext):
-    # Начинаем первый урок
     await state.update_data(lesson_idx=0, lesson_step=0)
     await state.set_state(PhotoStates.in_lesson)
     lesson = LESSONS[0]
@@ -388,7 +551,6 @@ async def lesson_navigation(callback: CallbackQuery, state: FSMContext):
         step -= 1
     elif callback.data == "lesson_finish":
         await callback.message.edit_text("🎉 Урок завершён! Ты стал ещё круче как фотограф.")
-        # отмечаем достижение
         user = str(callback.from_user.id)
         if user not in user_stats:
             user_stats[user] = {}
@@ -403,71 +565,78 @@ async def lesson_navigation(callback: CallbackQuery, state: FSMContext):
                                      reply_markup=get_lesson_keyboard(step, total))
     await callback.answer()
 
-# ---------- Обновлённый обработчик сообщений с контекстом ----------
+# ---------- Главное меню и другие обработчики (как раньше) ----------
+# (Остальные callback'и главного меню, обработка фото, альбомов, стилей, Q&A, генератор, документы, голосовые и чат)
+
+# ---------- Обновлённый обработчик текстового чата с контекстом ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
     user_id = str(message.from_user.id)
-    # контекст
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
-    # добавляем сообщение в историю (только текст, без команд)
     user_context[user_id].append({"role": "user", "text": message.text})
 
-    # ... остальная логика с проверкой на "ты где" и т.д., но теперь при вызове ask_ari передаём историю
-    # Для простоты, обновим ask_ari, чтобы она принимала историю
-    # Здесь вставим вызов ask_ari_with_context
+    # Проверки на "где ты", "что умеешь" и т.д. (можно добавить)
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    if any(phrase in message.text.lower() for phrase in ["ты где", "где ты", "покажись", "ари, ты тут"]):
+        await message.answer(loc["where_are_you_reply"])
+        return
+
+    analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
+                         "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
+    if any(word in message.text.lower() for word in analysis_keywords):
+        await message.answer(loc["ask_for_photo"])
+        return
+
+    current_state = await state.get_state()
+    if current_state == PhotoStates.waiting_for_photo:
+        await bot.send_chat_action(message.chat.id, "typing")
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+        reply = await ask_ari_with_context(user_id, message.text)
+        user_context[user_id].append({"role": "assistant", "text": reply})
+        if random.random() < 0.2:
+            comp = random.choice(LOCALE[lang]["compliments"])
+            reply = comp + "\n" + reply
+        await message.answer(reply)
+        return
+
+    if current_state is not None:
+        return
+
+    if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
+        prompt = LOCALE[lang]["what_prompt"]
+        reply = await ask_ari(prompt)
+        await message.answer(reply)
+        return
+    await bot.send_chat_action(message.chat.id, "typing")
+    await asyncio.sleep(random.uniform(0.5, 2.0))
     reply = await ask_ari_with_context(user_id, message.text)
-    # сохраняем ответ в историю
     user_context[user_id].append({"role": "assistant", "text": reply})
+    if random.random() < 0.2:
+        comp = random.choice(LOCALE[lang]["compliments"])
+        reply = comp + "\n" + reply
     await message.answer(reply)
 
-async def ask_ari_with_context(user_id: str, question: str) -> str:
-    history = list(user_context.get(user_id, []))
-    # Формируем messages для YandexGPT с учётом истории
-    messages = [{"role": "system", "text": CHAT_PROMPT}]
-    for msg in history:
-        messages.append(msg)
-    # добавляем текущее сообщение
-    messages.append({"role": "user", "text": question})
-    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
-    body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
-        "messages": messages
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
-        if resp.status_code == 200:
-            return resp.json()["result"]["alternatives"][0]["message"]["text"]
-        else:
-            logger.error(f"Chat API error: {resp.status_code}")
-            return "🦊 Что-то я запуталась..."
-    except Exception as e:
-        logger.error(f"Chat request failed: {e}")
-        return "🦊 Хвост запутался в проводах!"
-
-# Остальные обработчики (голос, альбомы, стили и т.д.) остаются без изменений, но с учетом обновлённой статистики.
-# В каждом обработчике при успешном выполнении будем увеличивать счётчики в user_stats и сохранять.
-
-# Пример для анализа фото:
-async def process_photo(...):
-    # ... после успешного анализа
-    user = str(message.from_user.id)
-    if user not in user_stats:
-        user_stats[user] = {}
-    user_stats[user]["photos_analyzed"] = user_stats[user].get("photos_analyzed", 0) + 1
-    # проверка на все стили (нужно хранить множество использованных стилей)
-    save_stats()
-    # ...
-
-# В конце lifespan добавим загрузку статистики из файла.
+# ---------- Inline-режим ----------
+@dp.inline_query()
+async def inline_query_handler(inline_query: InlineQuery):
+    result = InlineQueryResultArticle(
+        id="1",
+        title="Открыть Ари",
+        description="Начать диалог с кибер-лисичкой",
+        input_message_content=InputTextMessageContent(message_text="/start"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Перейти в чат", url=f"https://t.me/{(await bot.me()).username}")]
+        ])
+    )
+    await inline_query.answer([result], cache_time=1)
 
 # ---------- FastAPI ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # загрузка статистики уже сделана выше
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
     try:
         await bot.set_webhook(webhook_url)
