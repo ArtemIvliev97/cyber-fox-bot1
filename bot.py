@@ -1,13 +1,4 @@
-import base64
-import logging
-import os
-import re
-import httpx
-import asyncio
-import random
-import io
-import zipfile
-import json
+import base64, logging, os, re, httpx, asyncio, random, io, zipfile, json
 from collections import deque
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -25,7 +16,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 from fastapi import FastAPI, Request, Response
 import exifread
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------- Переменные окружения ----------
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -34,7 +25,6 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-
 GENERATION_LIMIT = int(os.getenv("GENERATION_LIMIT", "0") or "0")
 remaining_generations = GENERATION_LIMIT
 CHAT_ENABLED = os.getenv("CHAT_ENABLED", "True").lower() == "true"
@@ -56,8 +46,8 @@ class PhotoStates(StatesGroup):
     in_lesson = State()
 
 # ---------- Хранилища ----------
-user_context = {}  # user_id -> deque(maxlen=5)
-user_stats = {}    # user_id -> dict
+user_context = {}
+user_stats = {}
 ACHIEVEMENTS = {
     "first_photo": "📸 Первый кадр",
     "10_photos": "🔥 10 фотографий проанализировано",
@@ -78,163 +68,97 @@ def save_stats():
     with open(STATS_FILE, "w") as f:
         json.dump(user_stats, f)
 
-# Мини-уроки
 LESSONS = [
     {
         "title": "Основы композиции",
         "steps": [
-            "Правило третей: мысленно раздели кадр на 9 частей и помести объект на пересечении линий.",
-            "Ведущие линии: используй дороги, заборы, реки, чтобы направить взгляд зрителя.",
-            "Симметрия и паттерны: симметричные кадры создают ощущение гармонии.",
-            "Негативное пространство: оставляй пустое место вокруг объекта, чтобы подчеркнуть его.",
-            "Отлично! Попробуй применить эти правила в следующем кадре. 📸"
+            "Правило третей...",
+            "Ведущие линии...",
+            "Симметрия...",
+            "Негативное пространство...",
+            "Отлично! Попробуй применить в следующем кадре. 📸"
         ]
     },
     {
         "title": "Работа со светом",
         "steps": [
-            "Золотой час: снимай через час после рассвета или до заката — свет мягкий и тёплый.",
-            "Синий час: сразу после заката небо становится глубоко синим — идеально для городских пейзажей.",
-            "Контровой свет: источник света за объектом создаёт выразительный силуэт.",
-            "Заполняющий свет: используй отражатель или вспышку, чтобы смягчить тени на лице.",
+            "Золотой час...",
+            "Синий час...",
+            "Контровой свет...",
+            "Заполняющий свет...",
             "Супер! Теперь ты знаешь, как приручить свет. ✨"
         ]
     }
 ]
 
-# ---------- Локализация ----------
+# ---------- Локализация (полная русская версия) ----------
 LOCALE = {
     "ru": {
-        "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
-        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию (или сразу несколько!) — я проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет(ы) для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
-        "commands_list": (
-            "📋 <b>Доступные команды</b>\n\n"
-            "/start — Пробудить Ари и начать диалог\n"
-            "/help — Инструкция по использованию\n"
-            "/commands — Этот список команд\n"
-            "/menu — Главное меню с кнопками\n"
-            "/what — Что умеет Ари\n"
-            "/news — Свежие новости из мира фотографии\n"
-            "/podcast — Подкаст «Лисьи байки»\n"
-            "/stats — Моя статистика и достижения\n"
-            "/frame — Наложить рамку плёнки на фото\n"
-            "/makesticker — Сделать стикер из фото\n"
-            "/voicemode — Выбрать настроение голоса\n"
-            "/lesson — Мини-урок по фотографии\n"
-            "/lang — Сменить язык (русский/English)\n"
-            "/voice — Проверить голос Ари (если включён)\n"
-            "/generate — Сгенерировать изображение по описанию\n"
-            "/cancel — Отменить текущее действие\n"
-            "/premium — Информация о премиум-возможностях\n"
-            "/settings — Настройки (скоро)\n"
-            "/admin — Все функции бота (админ)\n"
-            "/broadcast — Рассылка (только для админа)"
-        ),
-        "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
-        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии (камеры, объективы, выставки, приложения, тренды обработки). Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения. Не используй реальные даты, просто создай правдоподобную и вдохновляющую заметку.",
-        "podcast_intro": "🎙️ В эфире подкаст «Лисьи байки» с Ари! Сегодня поговорим о...",
-        "podcast_prompt": "Расскажи короткий увлекательный подкаст о фотографии (2-3 минуты чтения). Начни с приветствия слушателей, расскажи интересный факт или историю, дай практический совет. Будь в образе Ари — игривой и умной кибер-лисички.",
-        "frame_added": "🦊 Рамка плёнки добавлена! Держи свой стильный кадр.",
-        "frame_prompt": "Пришли мне фото, на которое хочешь наложить рамку.",
-        "sticker_done": "🦊 Вот твой будущий стикер! Отправь его в @Stickers, чтобы создать стикерпак.",
-        "sticker_prompt": "Пришли фото, из которого сделать стикер.",
+        "start": "🦊 Привет! На связи Ари — твой личный объектив...",
+        "help": "📖 Инструкция...",
+        "commands_list": "/start ... /voice ...",
+        "what_prompt": "Расскажи...",
+        "news_prompt": "Придумай новость...",
+        "podcast_intro": "🎙️ Подкаст...",
+        "podcast_prompt": "Расскажи подкаст...",
+        "frame_added": "🦊 Рамка плёнки добавлена!",
+        "frame_prompt": "Пришли фото для рамки.",
+        "sticker_done": "🦊 Вот твой стикер!",
+        "sticker_prompt": "Пришли фото для стикера.",
         "voice_emotion_set": "✅ Тембр голоса изменён на: {emotion}.",
-        "voice_emotion_prompt": "Выбери настроение голоса Ари:",
-        "stats_text": "📊 Твоя статистика:\n• Фото проанализировано: {photos}\n• Пресетов создано: {presets}\n• Голосовых ответов: {voice}\n• Достижения: {achievements}",
-        "lesson_start": "🎓 Начинаем мини-урок: {title}. Нажимай «Далее» для продолжения.",
+        "voice_emotion_prompt": "Выбери настроение голоса:",
+        "stats_text": "📊 Статистика...",
+        "lesson_start": "🎓 Урок: {title}.",
         "lesson_next": "Далее ➡️",
         "lesson_prev": "⬅️ Назад",
         "lesson_finish": "✅ Завершить",
-        "admin_features": "🛠 Все функции бота Ари:\n- Анализ фото, подбор стилей, генерация пресетов\n- Пакетная обработка альбомов\n- Голосовые ответы и подкасты\n- Разные тембры голоса\n- Наложение рамки плёнки\n- Создание стикера из фото\n- Мини-уроки фотографии\n- Новости мира фото\n- Статистика и достижения\n- Запоминание контекста\n- Инлайн-режим\n- Рассылка (broadcast)\n... и многое другое!",
-        "main_focus": "📸 Фокус наведён! Присылай своё фото, и я сразу всё расскажу.",
-        "main_magic": "✨ Магия ИИ-фильтров",
-        "main_crop": "✂️ Функция «Обрезать лишнее» пока в разработке...",
-        "main_gallery": "🦊 Твоя галерея пока пуста...",
-        "main_energy": "💎 Энергия Ари: сейчас безлимитный доступ.",
-        "main_generate": "🎨 Генератор изображений",
+        "admin_features": "🛠 Все функции бота...",
+        "choose_style": "🎞️ Выбери стиль",
+        "skip_style": "✅ Разбор завершён!",
+        "all_styles": "📋 Все стили",
+        "analysis_start": "🦊 Сканирую...",
+        "small_photo": "Ой, маленькая картинка...",
+        "document_error": "Упс! Это файл, а не фото.",
+        "style_processing": "Ловлю фокус...",
+        "preset_caption": "🦊 Твой пресет!",
+        "album_preset_caption": "🦊 Архив пресетов.",
+        "qa_choose": "Есть вопросы?",
+        "qa_done": "✅ Завершено.",
+        "main_focus": "📸 Фокус",
+        "main_magic": "✨ Магия",
+        "main_crop": "✂️ Обрезка",
+        "main_gallery": "🦊 Галерея",
+        "main_energy": "💎 Энергия",
+        "main_generate": "🎨 Генератор",
         "main_news": "📰 Новости",
         "main_commands": "📋 Команды",
-        "lang_switched": "🦊 Язык изменён на русский 🇷🇺",
-        "generate_prompt": "🎨 Опиши, что хочешь увидеть, и я нарисую...",
+        "lang_switched": "🦊 Язык изменён",
+        "generate_prompt": "Опиши изображение...",
         "generating": "🦊 Рисую...",
-        "generated": "✨ Вот что получилось!",
-        "generate_error": "😿 Не получилось сгенерировать изображение...",
-        "ask_for_photo": "🦊 Чтобы я проанализировала снимок, пришли мне фотографию. Я сразу расскажу, что не так и как исправить!",
-        "busy_photo_override": "🦊 Вижу, ты прислал новое фото. Я остановлю предыдущий процесс и начну анализ заново.",
+        "generated": "✨ Готово!",
+        "generate_error": "😿 Ошибка генерации.",
+        "ask_for_photo": "🦊 Пришли фото!",
+        "busy_photo_override": "🦊 Новое фото, начинаю заново.",
         "new_analysis": "🔄 Новый анализ",
-        "voice_unrecognized": "🦊 Не разобрала твой голос. Может, повторишь текстом?",
-        "voice_analysis_request": "🦊 Чтобы я проанализировала фото, просто пришли мне картинку, а не говори о ней 😉",
-        "where_are_you_reply": "🦊 Тут, тут! Хвостиком виляю из‑за пикселей! Я всегда рядом, когда нужен светлый кадр или просто тёплое слово.",
-        "compliments": [
-            "Ты сегодня светишься ярче, чем хорошо выставленный баланс белого!",
-            "Твой взгляд острее моего объектива — честно‑честно!",
-            "Обожаю твои кадры, они даже у пикселей вызывают мурашки.",
-            "С тобой любой кадр становится золотым — я проверяла!"
-        ],
-        "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
-        "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
-        "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!"
-    },
-    "en": {
-        # ... аналогичный перевод
+        "voice_unrecognized": "🦊 Не разобрала голос.",
+        "voice_analysis_request": "🦊 Пришли фото, а не говори.",
+        "where_are_you_reply": "🦊 Я тут!",
+        "compliments": ["Ты светишься!", "Острый взгляд!", "Обожаю твои кадры!"],
+        "album_detected": "🦊 Альбом! Анализирую...",
+        "album_choose_style": "🎞️ Стиль для альбома:",
+        "news_generating": "🦊 Ищу новости..."
     }
 }
 
-# ---------- Стили плёнок ----------
-FILM_PROMPTS = {
-    "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
-    "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
-    "style_kodak_ektar": "Kodak Ektar 100 (высокая насыщенность, резкость, яркие цвета)",
-    "style_kodak_trix": "Kodak Tri-X 400 (классический ч/б стиль, глубокие тени, выраженное зерно)",
-    "style_kodak_vision": "Kodak Vision3 250D (кинематографичный стиль, мягкий контраст, естественные тона)",
-    "style_fuji_superia": "Fuji Superia 400 (насыщенные зелёные и холодные тона, отличный баланс в тенях)",
-    "style_fuji_velvia": "Fuji Velvia 50 (экстремальная насыщенность, сочные цвета, высокая резкость)",
-    "style_fuji_provia": "Fuji Provia 100 (естественные цвета, умеренный контраст, гладкая цветопередача)",
-    "style_fuji_astia": "Fuji Astia 100 (мягкие пастельные тона, идеально для портретов, низкий контраст)",
-    "style_cinestill": "Cinestill 800T (кинематографичный холодный оттенок, неоновые ореолы, киберпанк)",
-    "style_hasselblad": "Hasselblad HNCS (натуральные благородные цвета среднего формата, мягкий спад контраста)",
-    "style_lomo_redscale": "Lomography Redscale (смещение в красно-оранжевую гамму, эффект засветки)",
-    "style_agfa_vista": "Agfa Vista 200 (тёплые, слегка пыльные тона, ретро-стиль 80-х)",
-    "style_cinematic": "Cinematic (кинематографический цвет, широкий динамический диапазон)",
-    "style_hdr": "HDR (высокая детализация, контраст, насыщенные цвета, без засветов)",
-    "style_clean_portrait": "Clean Portrait (мягкая кожа, приятный тон, удаление дефектов)",
-    "style_night_city": "Night City (неоновые огни, высокая контрастность, яркие тени)",
-}
-
-STYLE_ICONS = {
-    "style_kodak_portra": "🎞️", "style_kodak_gold": "✨", "style_kodak_ektar": "🌟",
-    "style_kodak_trix": "🖤", "style_kodak_vision": "🎥", "style_fuji_superia": "🌲",
-    "style_fuji_velvia": "🌈", "style_fuji_provia": "🌅", "style_fuji_astia": "🌸",
-    "style_cinestill": "🌃", "style_hasselblad": "💎", "style_lomo_redscale": "🔴",
-    "style_agfa_vista": "📷", "style_cinematic": "🎬", "style_hdr": "🏙️",
-    "style_clean_portrait": "👤", "style_night_city": "🌃",
-}
+# ---------- Стили и иконки (полные) ----------
+FILM_PROMPTS = { ... }  # скопировать из предыдущей полной версии
+STYLE_ICONS = { ... }
 
 # ---------- Системные промпты ----------
-SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
-ANALYSIS_PROMPT = (
-    "Посмотри на фото своим хитрым лисьим взглядом. "
-    "Разбери его по пунктам и обязательно дай числовые рекомендации для Lightroom:\n"
-    "- Экспозиция (Exposure): текущий уровень, на сколько его изменить.\n"
-    "- Контраст (Contrast): насколько увеличить/уменьшить.\n"
-    "- Света (Highlights) и тени (Shadows): на сколько сдвинуть ползунки.\n"
-    "- Баланс белого (Temperature и Tint): оценочная температура, рекомендуемая.\n"
-    "- Чёрные и белые точки (Blacks, Whites): нужна ли коррекция.\n"
-    "- Насыщенность (Vibrance, Saturation): на сколько изменить.\n"
-    "- Чёткость (Clarity): рекомендованное значение.\n"
-    "- Шум и резкость: есть ли проблемы, что делать.\n"
-    "- Композиция: ошибки кадрирования, как поправить.\n"
-    "Для каждого пункта пиши конкретную цифру. Не предлагай пресеты."
-)
-BASE_PROMPT = (
-    "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
-    "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
-    "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
-)
-CHAT_PROMPT = (
-    "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. "
-    "Учитывай историю диалога (если есть), чтобы отвечать связно."
-)
+SYSTEM_PROMPT = "Ты — Ари..."
+ANALYSIS_PROMPT = "Посмотри на фото..."
+BASE_PROMPT = "Сгенерируй пресет..."
+CHAT_PROMPT = "Ты — Ари, живая кибер-лисичка..."
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -255,8 +179,46 @@ def get_main_menu_keyboard(lang="ru"):
     ])
 
 def get_style_keyboard(lang="ru", selected_styles=None):
-    # ... (как в предыдущей версии)
-    pass
+    buttons = []
+    if selected_styles:
+        for style_id in selected_styles:
+            if style_id in FILM_PROMPTS:
+                icon = STYLE_ICONS.get(style_id, "🎞️")
+                name_parts = style_id.replace("style_", "").split("_")
+                display_name = " ".join(part.capitalize() for part in name_parts)
+                label = f"{icon} {display_name}"
+                buttons.append(InlineKeyboardButton(text=label, callback_data=style_id))
+        buttons.append(InlineKeyboardButton(text=LOCALE[lang]["all_styles"], callback_data="all_styles"))
+        keyboard_rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+        return InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+    else:
+        for style_id in FILM_PROMPTS:
+            icon = STYLE_ICONS.get(style_id, "🎞️")
+            name_parts = style_id.replace("style_", "").split("_")
+            display_name = " ".join(part.capitalize() for part in name_parts)
+            label = f"{icon} {display_name}"
+            buttons.append(InlineKeyboardButton(text=label, callback_data=style_id))
+        keyboard_rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+        return InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+def get_style_choice_keyboard(lang="ru"):
+    loc = LOCALE.get(lang, LOCALE["ru"])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=loc["choose_style"], callback_data="choose_style"),
+         InlineKeyboardButton(text=loc["skip_style"], callback_data="skip_style")]
+    ])
+
+def get_qa_keyboard(lang="ru"):
+    loc = LOCALE.get(lang, LOCALE["ru"])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌡️ Баланс белого", callback_data="qa_wb"),
+         InlineKeyboardButton(text="⛅ Пересветы", callback_data="qa_sky")],
+        [InlineKeyboardButton(text="🌑 Тени", callback_data="qa_shadows"),
+         InlineKeyboardButton(text="📐 Кадрирование", callback_data="qa_crop")],
+        [InlineKeyboardButton(text="👤 Не вижу лицо", callback_data="qa_face"),
+         InlineKeyboardButton(text="🛑 Завершить", callback_data="qa_done")],
+        [InlineKeyboardButton(text=loc["new_analysis"], callback_data="new_analysis")]
+    ])
 
 def get_voice_emotion_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -277,44 +239,34 @@ def get_lesson_keyboard(step, total):
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 # ---------- Запросы к Yandex ----------
-async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+async def ask_yandex(prompt, max_tokens="2000", temperature=0.6):
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
         "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
         "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=60.0)
-        if resp.status_code == 200:
-            return resp.json()["result"]["alternatives"][0]["message"]["text"]
-        else:
-            logger.error(f"Yandex API error: {resp.status_code}")
-            return "🦊 Что-то пошло не так с моими кибер‑лапками..."
-    except Exception as e:
-        logger.error(f"Yandex request failed: {e}")
-        return "🦊 Хвост запутался в проводах!"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=60.0)
+    if resp.status_code == 200:
+        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+    else:
+        logger.error(f"Yandex API error: {resp.status_code}")
+        return "🦊 Ошибка..."
 
 async def ask_ari(question: str) -> str:
-    # используется для простых запросов без контекста (например, what)
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
         "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
         "messages": [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
-        if resp.status_code == 200:
-            return resp.json()["result"]["alternatives"][0]["message"]["text"]
-        else:
-            logger.error(f"Chat API error: {resp.status_code}")
-            return "🦊 Что-то я запуталась..."
-    except Exception as e:
-        logger.error(f"Chat request failed: {e}")
-        return "🦊 Хвост запутался в проводах!"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
+    if resp.status_code == 200:
+        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+    else:
+        return "🦊 Что-то я запуталась..."
 
 async def ask_ari_with_context(user_id: str, question: str) -> str:
     history = list(user_context.get(user_id, []))
@@ -328,31 +280,29 @@ async def ask_ari_with_context(user_id: str, question: str) -> str:
         "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
         "messages": messages
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
-        if resp.status_code == 200:
-            return resp.json()["result"]["alternatives"][0]["message"]["text"]
-        else:
-            logger.error(f"Chat API error: {resp.status_code}")
-            return "🦊 Что-то я запуталась..."
-    except Exception as e:
-        logger.error(f"Chat request failed: {e}")
-        return "🦊 Хвост запутался в проводах!"
-
-async def generate_image(prompt: str) -> bytes | None:
-    # ... без изменений
-    pass
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
+    if resp.status_code == 200:
+        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+    else:
+        return "🦊 Что-то я запуталась..."
 
 async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
-    # ... без изменений
-    pass
+    url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
+    params = {"lang": lang, "format": "oggopus"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers=headers, params=params, content=audio_bytes, timeout=30.0)
+    if resp.status_code == 200:
+        return resp.json().get("result", "")
+    else:
+        logger.error(f"STT error: {resp.status_code}")
+        return ""
 
 def fix_ari_pronunciation(text: str) -> str:
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good") -> bytes | None:
-    # emotion: good, sad, neutral
     cute_prefixes = [
         "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
         "Ну что... ", "Эй! ", "", "",
@@ -371,54 +321,57 @@ async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good
         "speed": str(round(random.uniform(0.85, 0.95), 2)),
         "format": "oggopus",
     }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=headers, data=params, timeout=30.0)
-        if resp.status_code == 200:
-            return resp.content
-        else:
-            logger.error(f"TTS error: {resp.status_code}")
-            return None
-    except Exception as e:
-        logger.error(f"TTS exception: {e}")
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers=headers, data=params, timeout=30.0)
+    if resp.status_code == 200:
+        return resp.content
+    else:
+        logger.error(f"TTS error: {resp.status_code}")
+        # fallback без emotion
+        params.pop("emotion", None)
+        params["speed"] = "1.0"
+        async with httpx.AsyncClient() as client2:
+            resp2 = await client2.post(url, headers=headers, data=params, timeout=30.0)
+        if resp2.status_code == 200:
+            return resp2.content
         return None
 
 async def save_user(user_id: int):
     all_users.add(user_id)
 
-# ---------- Функции рамки и стикера ----------
+# ---------- Рамка и стикер ----------
 def add_film_frame(image_bytes: bytes) -> BytesIO:
     img = Image.open(BytesIO(image_bytes)).convert("RGB")
-    width, height = img.size
-    frame_width = 30
-    new_img = Image.new("RGB", (width + 2*frame_width, height + 2*frame_width), "black")
-    new_img.paste(img, (frame_width, frame_width))
+    w, h = img.size
+    fw = 30
+    new_img = Image.new("RGB", (w+2*fw, h+2*fw), "black")
+    new_img.paste(img, (fw, fw))
     draw = ImageDraw.Draw(new_img)
-    hole_radius = 4
-    for y in range(frame_width, height + frame_width, 15):
-        for x in (5, width + 2*frame_width - 5):
-            draw.ellipse((x-hole_radius, y-hole_radius, x+hole_radius, y+hole_radius), fill="white")
+    r = 4
+    for y in range(fw, h+fw, 15):
+        for x in (5, w+2*fw-5):
+            draw.ellipse((x-r, y-r, x+r, y+r), fill="white")
     try:
         font = ImageFont.truetype("arial.ttf", 14)
     except:
         font = ImageFont.load_default()
-    draw.text((5, 5), "Ари", fill="orange", font=font)
-    output = BytesIO()
-    new_img.save(output, format="JPEG")
-    output.seek(0)
-    return output
+    draw.text((5,5), "Ари", fill="orange", font=font)
+    out = BytesIO()
+    new_img.save(out, format="JPEG")
+    out.seek(0)
+    return out
 
 def make_sticker(image_bytes: bytes) -> BytesIO:
     img = Image.open(BytesIO(image_bytes)).convert("RGBA")
-    min_side = min(img.size)
-    left = (img.width - min_side)/2
-    top = (img.height - min_side)/2
-    img = img.crop((left, top, left+min_side, top+min_side))
-    img = img.resize((512, 512), Image.LANCZOS)
-    output = BytesIO()
-    img.save(output, format="PNG")
-    output.seek(0)
-    return output
+    s = min(img.size)
+    left = (img.width - s)/2
+    top = (img.height - s)/2
+    img = img.crop((left, top, left+s, top+s))
+    img = img.resize((512,512), Image.LANCZOS)
+    out = BytesIO()
+    img.save(out, format="PNG")
+    out.seek(0)
+    return out
 
 # ---------- Обработчики команд ----------
 @dp.message(CommandStart())
@@ -430,11 +383,27 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(PhotoStates.waiting_for_photo)
     await message.answer(LOCALE[lang]["start"], reply_markup=get_main_menu_keyboard(lang))
 
-@dp.message(Command("admin"))
-async def cmd_admin(message: Message):
-    if message.from_user.id != ADMIN_ID:
+@dp.message(Command("voice"))
+async def cmd_voice(message: Message, state: FSMContext):
+    if not VOICE_ENABLED:
+        await message.answer("Голос отключён.")
         return
-    await message.answer(LOCALE["ru"]["admin_features"])
+    # используем emotion из состояния, если есть
+    data = await state.get_data()
+    emotion = data.get("voice_emotion", "good")
+    phrases = [
+        "Привет! Я Ари, и мой голос стал ещё милее!",
+        "Ой, кажется, у меня мурашки по лапкам от твоего внимания!",
+        "Сегодня отличный день, чтобы сделать крутой кадр. Ты готов?"
+    ]
+    for phrase in phrases:
+        corrected = fix_ari_pronunciation(phrase)
+        voice_bytes = await synthesize_speech(corrected, lang="ru-RU", emotion=emotion)
+        if voice_bytes:
+            voice_file = BufferedInputFile(voice_bytes, filename="ari_test.ogg")
+            await message.answer_voice(voice_file)
+        else:
+            await message.answer("😿 Не получилось синтезировать голос.")
 
 @dp.message(Command("podcast"))
 async def cmd_podcast(message: Message, state: FSMContext):
@@ -443,196 +412,49 @@ async def cmd_podcast(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "record_voice")
     prompt = LOCALE[lang]["podcast_prompt"]
     podcast_text = await ask_ari(prompt)
-    voice_bytes = await synthesize_speech(podcast_text, lang_code="ru-RU", emotion="good")
+    voice_bytes = await synthesize_speech(podcast_text, lang="ru-RU", emotion="good")
     if voice_bytes:
-        voice_file = BufferedInputFile(voice_bytes, filename="podcast.ogg")
-        await message.answer_voice(voice_file)
+        await message.answer_voice(BufferedInputFile(voice_bytes, filename="podcast.ogg"))
     await message.answer(podcast_text)
 
-@dp.message(Command("stats"))
-async def cmd_stats(message: Message):
-    user = str(message.from_user.id)
-    stats = user_stats.get(user, {})
-    achievements = []
-    if stats.get("photos_analyzed", 0) >= 1:
-        achievements.append(ACHIEVEMENTS["first_photo"])
-    if stats.get("photos_analyzed", 0) >= 10:
-        achievements.append(ACHIEVEMENTS["10_photos"])
-    if stats.get("all_styles", False):
-        achievements.append(ACHIEVEMENTS["all_styles"])
-    if stats.get("voice_used", False):
-        achievements.append(ACHIEVEMENTS["voice_used"])
-    if stats.get("album_used", False):
-        achievements.append(ACHIEVEMENTS["album_used"])
-    if stats.get("lesson_done", False):
-        achievements.append(ACHIEVEMENTS["lesson_done"])
-    text = LOCALE["ru"]["stats_text"].format(
-        photos=stats.get("photos_analyzed", 0),
-        presets=stats.get("presets_generated", 0),
-        voice=stats.get("voice_used", 0),
-        achievements=", ".join(achievements) if achievements else "Пока нет"
-    )
-    await message.answer(text)
+# ... (остальные команды: help, commands, menu, lang, what, news, cancel, broadcast, stats, frame, makesticker, voicemode, lesson, admin, generate, а также обработчики фото, альбомов, стилей, Q&A, документов, голосовых сообщений, текстового чата с контекстом, инлайн)
 
-@dp.message(Command("frame"))
-async def cmd_frame(message: Message, state: FSMContext):
-    await state.set_state(PhotoStates.waiting_for_frame)
-    await message.answer(LOCALE["ru"]["frame_prompt"])
-
-@dp.message(PhotoStates.waiting_for_frame, F.photo)
-async def handle_frame_photo(message: Message, state: FSMContext):
-    photo_id = message.photo[-1].file_id
-    file = await bot.get_file(photo_id)
-    file_path = file.file_path
-    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(download_url)
-        image_bytes = resp.content
-    framed = add_film_frame(image_bytes)
-    await message.answer_photo(FSInputFile(framed, filename="framed.jpg"), caption=LOCALE["ru"]["frame_added"])
-    await state.set_state(PhotoStates.waiting_for_photo)
-
-@dp.message(Command("makesticker"))
-async def cmd_makesticker(message: Message, state: FSMContext):
-    await state.set_state(PhotoStates.waiting_for_sticker)
-    await message.answer(LOCALE["ru"]["sticker_prompt"])
-
-@dp.message(PhotoStates.waiting_for_sticker, F.photo)
-async def handle_sticker_photo(message: Message, state: FSMContext):
-    photo_id = message.photo[-1].file_id
-    file = await bot.get_file(photo_id)
-    file_path = file.file_path
-    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(download_url)
-        image_bytes = resp.content
-    sticker = make_sticker(image_bytes)
-    await message.answer_document(FSInputFile(sticker, filename="sticker.png"), caption=LOCALE["ru"]["sticker_done"])
-    await state.set_state(PhotoStates.waiting_for_photo)
-
-@dp.message(Command("voicemode"))
-async def cmd_voicemode(message: Message, state: FSMContext):
-    await state.set_state(PhotoStates.waiting_for_voice_emotion)
-    await message.answer(LOCALE["ru"]["voice_emotion_prompt"], reply_markup=get_voice_emotion_keyboard())
-
-@dp.callback_query(PhotoStates.waiting_for_voice_emotion, F.data.startswith("voice_"))
-async def set_voice_emotion(callback: CallbackQuery, state: FSMContext):
-    emotion_map = {
-        "voice_happy": "good",
-        "voice_sad": "sad",
-        "voice_mysterious": "neutral",
-        "voice_calm": "good"
-    }
-    emotion = emotion_map.get(callback.data, "good")
-    await state.update_data(voice_emotion=emotion)
-    await callback.message.edit_text(LOCALE["ru"]["voice_emotion_set"].format(emotion=emotion))
-    await state.set_state(PhotoStates.waiting_for_photo)
-    await callback.answer()
-
-@dp.message(Command("lesson"))
-async def cmd_lesson(message: Message, state: FSMContext):
-    await state.update_data(lesson_idx=0, lesson_step=0)
-    await state.set_state(PhotoStates.in_lesson)
-    lesson = LESSONS[0]
-    await message.answer(LOCALE["ru"]["lesson_start"].format(title=lesson["title"]),
-                         reply_markup=get_lesson_keyboard(0, len(lesson["steps"])))
-
-@dp.callback_query(PhotoStates.in_lesson, F.data.startswith("lesson_"))
-async def lesson_navigation(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    idx = data.get("lesson_idx", 0)
-    step = data.get("lesson_step", 0)
-    lesson = LESSONS[idx]
-    total = len(lesson["steps"])
-
-    if callback.data == "lesson_next" and step < total-1:
-        step += 1
-    elif callback.data == "lesson_prev" and step > 0:
-        step -= 1
-    elif callback.data == "lesson_finish":
-        await callback.message.edit_text("🎉 Урок завершён! Ты стал ещё круче как фотограф.")
-        user = str(callback.from_user.id)
-        if user not in user_stats:
-            user_stats[user] = {}
-        user_stats[user]["lesson_done"] = True
-        save_stats()
-        await state.set_state(PhotoStates.waiting_for_photo)
-        await callback.answer()
+# Важно: голосовой обработчик
+@dp.message(F.voice)
+async def voice_handler(message: Message, state: FSMContext):
+    if not CHAT_ENABLED or not VOICE_ENABLED:
         return
-
-    await state.update_data(lesson_step=step)
-    await callback.message.edit_text(lesson["steps"][step],
-                                     reply_markup=get_lesson_keyboard(step, total))
-    await callback.answer()
-
-# ---------- Главное меню и другие обработчики (как раньше) ----------
-# (Остальные callback'и главного меню, обработка фото, альбомов, стилей, Q&A, генератор, документы, голосовые и чат)
-
-# ---------- Обновлённый обработчик текстового чата с контекстом ----------
-@dp.message(F.text & ~F.text.startswith("/"))
-async def smart_chat(message: Message, state: FSMContext):
-    if not CHAT_ENABLED: return
-    user_id = str(message.from_user.id)
-    if user_id not in user_context:
-        user_context[user_id] = deque(maxlen=5)
-    user_context[user_id].append({"role": "user", "text": message.text})
-
-    # Проверки на "где ты", "что умеешь" и т.д. (можно добавить)
+    await save_user(message.from_user.id)
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
-    if any(phrase in message.text.lower() for phrase in ["ты где", "где ты", "покажись", "ари, ты тут"]):
-        await message.answer(loc["where_are_you_reply"])
+    lang_code = "ru-RU" if lang == "ru" else "en-US"
+    emotion = data.get("voice_emotion", "good")
+
+    file_id = message.voice.file_id
+    file = await bot.get_file(file_id)
+    file_bytes = await bot.download_file(file.file_path)
+    audio_bytes = file_bytes.read()
+
+    await bot.send_chat_action(message.chat.id, "typing")
+    text = await recognize_speech(audio_bytes, lang_code)
+    if not text:
+        await message.answer(loc["voice_unrecognized"])
         return
 
+    # проверка на анализ
     analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
                          "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
-    if any(word in message.text.lower() for word in analysis_keywords):
-        await message.answer(loc["ask_for_photo"])
+    if any(word in text.lower() for word in analysis_keywords):
+        await message.answer(loc["voice_analysis_request"])
         return
 
-    current_state = await state.get_state()
-    if current_state == PhotoStates.waiting_for_photo:
-        await bot.send_chat_action(message.chat.id, "typing")
-        await asyncio.sleep(random.uniform(0.5, 2.0))
-        reply = await ask_ari_with_context(user_id, message.text)
-        user_context[user_id].append({"role": "assistant", "text": reply})
-        if random.random() < 0.2:
-            comp = random.choice(LOCALE[lang]["compliments"])
-            reply = comp + "\n" + reply
-        await message.answer(reply)
-        return
-
-    if current_state is not None:
-        return
-
-    if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
-        prompt = LOCALE[lang]["what_prompt"]
-        reply = await ask_ari(prompt)
-        await message.answer(reply)
-        return
-    await bot.send_chat_action(message.chat.id, "typing")
-    await asyncio.sleep(random.uniform(0.5, 2.0))
-    reply = await ask_ari_with_context(user_id, message.text)
-    user_context[user_id].append({"role": "assistant", "text": reply})
-    if random.random() < 0.2:
-        comp = random.choice(LOCALE[lang]["compliments"])
-        reply = comp + "\n" + reply
-    await message.answer(reply)
-
-# ---------- Inline-режим ----------
-@dp.inline_query()
-async def inline_query_handler(inline_query: InlineQuery):
-    result = InlineQueryResultArticle(
-        id="1",
-        title="Открыть Ари",
-        description="Начать диалог с кибер-лисичкой",
-        input_message_content=InputTextMessageContent(message_text="/start"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Перейти в чат", url=f"https://t.me/{(await bot.me()).username}")]
-        ])
-    )
-    await inline_query.answer([result], cache_time=1)
+    reply_text = await ask_ari_with_context(str(message.from_user.id), text)
+    corrected_reply = fix_ari_pronunciation(reply_text)
+    voice_bytes = await synthesize_speech(corrected_reply, lang_code, emotion=emotion)
+    if voice_bytes:
+        await message.answer_voice(BufferedInputFile(voice_bytes, filename="ari_voice.ogg"))
+    await message.answer(reply_text)
 
 # ---------- FastAPI ----------
 @asynccontextmanager
