@@ -97,6 +97,13 @@ LOCALE = {
         "new_analysis": "🔄 Новый анализ",
         "voice_unrecognized": "🦊 Не разобрала твой голос. Может, повторишь текстом?",
         "voice_analysis_request": "🦊 Чтобы я проанализировала фото, просто пришли мне картинку, а не говори о ней 😉",
+        "where_are_you_reply": "🦊 Тут, тут! Хвостиком виляю из‑за пикселей! Я всегда рядом, когда нужен светлый кадр или просто тёплое слово.",
+        "compliments": [
+            "Ты сегодня светишься ярче, чем хорошо выставленный баланс белого!",
+            "Твой взгляд острее моего объектива — честно‑честно!",
+            "Обожаю твои кадры, они даже у пикселей вызывают мурашки.",
+            "С тобой любой кадр становится золотым — я проверяла!"
+        ]
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
@@ -149,6 +156,13 @@ LOCALE = {
         "new_analysis": "🔄 New analysis",
         "voice_unrecognized": "🦊 Couldn't catch your voice. Maybe type it?",
         "voice_analysis_request": "🦊 To analyze a photo, just send me the picture, don't tell me about it 😉",
+        "where_are_you_reply": "🦊 Here, here! Wagging my tail from behind the pixels! I'm always around when you need a bright shot or a warm word.",
+        "compliments": [
+            "You shine brighter than a well‑set white balance today!",
+            "Your eye is sharper than my lens — honestly!",
+            "I love your shots, they give even pixels goosebumps.",
+            "With you, any frame turns golden — I checked!"
+        ]
     }
 }
 
@@ -386,7 +400,8 @@ async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
     """Синтезирует милую речь с случайным голосом, префиксом и мягкой скоростью."""
     cute_prefixes = [
         "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
-        "Ну что... ", "Эй! ", "", ""
+        "Ну что... ", "Эй! ", "", "",
+        "Охохо! ", "Мрр-мяу?.. шучу, я же лиса! ", "Смотри-ка... "
     ]
     prefix = random.choice(cute_prefixes)
     full_text = prefix + text
@@ -476,7 +491,6 @@ async def cmd_what(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     prompt = LOCALE[lang]["what_prompt"]
-    # Используем CHAT_PROMPT, чтобы получить живой, игривый ответ
     answer = await ask_ari(prompt)
     await message.answer(answer)
 
@@ -838,7 +852,7 @@ async def voice_handler(message: Message, state: FSMContext):
         await message.answer_voice(voice_file)
     await message.answer(reply_text)
 
-# ---------- Текстовый чат ----------
+# ---------- Текстовый чат с комплиментами и реакцией на "где ты" ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
@@ -847,6 +861,12 @@ async def smart_chat(message: Message, state: FSMContext):
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
 
+    # Реакция на "ты где?", "покажись" и т.п.
+    if any(phrase in message.text.lower() for phrase in ["ты где", "где ты", "покажись", "ари, ты тут"]):
+        await message.answer(loc["where_are_you_reply"])
+        return
+
+    # Ключевые слова для анализа (как раньше)
     analysis_keywords = ["проанализируй", "разбери фото", "оцени фото", "что с фото",
                          "проверь снимок", "скажи про фотку", "анализ", "дай совет по фото"]
     if any(word in message.text.lower() for word in analysis_keywords):
@@ -858,6 +878,10 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2.0))
         reply = await ask_ari(message.text)
+        # Иногда вставляем случайный комплимент (с вероятностью ~20%)
+        if random.random() < 0.2:
+            comp = random.choice(LOCALE[lang]["compliments"])
+            reply = comp + "\n" + reply
         await message.answer(reply)
         return
 
@@ -865,7 +889,6 @@ async def smart_chat(message: Message, state: FSMContext):
         return
 
     if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
-        # В свободном чате тоже используем живой ответ через ask_ari
         prompt = LOCALE[lang]["what_prompt"]
         reply = await ask_ari(prompt)
         await message.answer(reply)
@@ -873,6 +896,9 @@ async def smart_chat(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2.0))
     reply = await ask_ari(message.text)
+    if random.random() < 0.2:
+        comp = random.choice(LOCALE[lang]["compliments"])
+        reply = comp + "\n" + reply
     await message.answer(reply)
 
 # ---------- Стикеры ----------
