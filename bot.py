@@ -14,7 +14,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     BufferedInputFile, InlineQuery, InlineQueryResultArticle, InputTextMessageContent,
-    FSInputFile, MediaGroupBuilder
+    FSInputFile
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -29,7 +29,6 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-CRON_SECRET = os.getenv("CRON_SECRET", "changeme")   # для защиты /daily-tip
 
 GENERATION_LIMIT = int(os.getenv("GENERATION_LIMIT", "0") or "0")
 remaining_generations = GENERATION_LIMIT
@@ -45,7 +44,7 @@ class PhotoStates(StatesGroup):
     waiting_for_style = State()
     waiting_for_qa = State()
     waiting_for_prompt = State()
-    waiting_for_album_style = State()   # новое: выбор стиля для альбома
+    waiting_for_album_style = State()
 
 # ---------- Локализация ----------
 LOCALE = {
@@ -65,7 +64,6 @@ LOCALE = {
             "/cancel — Отменить текущее действие\n"
             "/premium — Информация о премиум-возможностях\n"
             "/settings — Настройки (скоро)\n"
-            "/daily_tip — Получить совет дня\n"
             "/broadcast — Рассылка (только для админа)"
         ),
         "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
@@ -111,19 +109,6 @@ LOCALE = {
         ],
         "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
         "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
-        "daily_tip_intro": "🌅 Доброе утро, охотник за кадрами! Вот твой сегодняшний совет от Ари:",
-        "daily_tips": [
-            "Снимай в «золотой час» — за час до заката или после рассвета. Свет мягкий, тёплый и дарит волшебные тени.",
-            "Попробуй сегодня снимать с открытой диафрагмой (f/2.8 или f/1.8), чтобы получить красивое размытие фона.",
-            "Делай кадр чуть темнее, чем кажется правильным. Тени всегда можно вытянуть в Lightroom, а пересветы — нет.",
-            "Ищи отражения в лужах, витринах, очках — они добавляют глубину и сюрреалистичность.",
-            "Сегодня используй только центральную точку фокусировки. Наведи на главный объект, заблокируй фокус и перекомпонуй кадр.",
-            "Снимай в RAW! Да, я уже говорила, но это правда важно. Больше данных = больше магии при обработке.",
-            "Попробуй правило третей: мысленно раздели кадр на 9 равных частей и помести объект на пересечении линий.",
-            "Ищи контраст: светлый объект на тёмном фоне (или наоборот) сразу привлекает внимание.",
-            "Делай шаг вперёд и ещё один. Часто лучший кадр находится ближе, чем кажется.",
-            "Снимай эмоции, а не просто объекты. Взгляд, улыбка, жест расскажут больше, чем идеальная композиция."
-        ]
     },
     "en": {
         "start": "🦊 Hi! I'm Ari, your personal lens...",
@@ -141,7 +126,6 @@ LOCALE = {
             "/cancel — Cancel current action\n"
             "/premium — About premium features\n"
             "/settings — Settings (coming soon)\n"
-            "/daily_tip — Get the tip of the day\n"
             "/broadcast — Broadcast message (admin only)"
         ),
         "what_prompt": "In two or three playful sentences, tell what you can do as the cyber-fox Ari: analyze photos, suggest film styles, generate Lightroom presets, create images from descriptions, chat, and respond with voice. End with an invitation to send a photo. Be emotional, use emojis 🦊📸✨.",
@@ -187,19 +171,6 @@ LOCALE = {
         ],
         "album_detected": "🦊 Wow, a whole album! I'll analyze the first photo, then pick a style for the entire series. One moment...",
         "album_choose_style": "🎞️ Choose a style to apply to all photos:",
-        "daily_tip_intro": "🌅 Good morning, frame hunter! Here's your daily tip from Ari:",
-        "daily_tips": [
-            "Shoot during the golden hour – an hour before sunset or after sunrise. The light is soft, warm, and magical.",
-            "Try shooting with a wide aperture (f/2.8 or f/1.8) today for beautiful background blur.",
-            "Underexpose slightly – you can always recover shadows in Lightroom, but blown highlights are lost forever.",
-            "Look for reflections in puddles, windows, sunglasses – they add depth and surrealism.",
-            "Today, use only the center focus point. Lock focus on your subject, then recompose.",
-            "Shoot in RAW! I know I say it a lot, but it really matters. More data = more magic in post.",
-            "Try the rule of thirds: imagine a 3x3 grid and place your subject at the intersection of lines.",
-            "Seek contrast: a bright subject against a dark background (or vice versa) grabs attention instantly.",
-            "Take a step closer, and then another. Often the best shot is nearer than you think.",
-            "Capture emotions, not just objects. A glance, a smile, a gesture tell more than perfect composition."
-        ]
     }
 }
 
@@ -430,7 +401,6 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         return ""
 
 def fix_ari_pronunciation(text: str) -> str:
-    """Заменяет 'Ари' на 'А+ри', чтобы TTS ставила ударение на первый слог."""
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU") -> bytes | None:
@@ -560,15 +530,6 @@ async def cmd_broadcast(message: Message):
             logger.warning(f"Не удалось отправить пользователю {user_id}: {e}")
     await message.answer(f"Рассылка завершена. Отправлено {success}/{len(all_users)} пользователям.")
 
-@dp.message(Command("daily_tip"))
-async def cmd_daily_tip(message: Message):
-    """Тестовая команда /daily_tip – отправляет совет (если админ)"""
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("Эта команда только для админа.")
-        return
-    await send_daily_tip()
-    await message.answer("✅ Советы отправлены всем пользователям.")
-
 # ---------- Главное меню ----------
 @dp.callback_query(F.data == "main_focus")
 async def main_focus(callback: CallbackQuery, state: FSMContext):
@@ -627,32 +588,20 @@ async def main_commands(callback: CallbackQuery, state: FSMContext):
 async def handle_single_photo(message: Message, state: FSMContext):
     await process_photo(message, state, single=True)
 
-# ---------- Обработка альбома (media group) ----------
+# ---------- Обработка альбома ----------
 @dp.message(F.media_group_id)
 async def handle_album(message: Message, state: FSMContext):
-    # Альбомы приходят как набор сообщений с одинаковым media_group_id.
-    # aiogram не группирует их автоматически, нужно собирать самому.
-    # Используем простой подход: запоминаем, что начался альбом, и ждём немного.
-    # В реальном коде лучше использовать MediaGroupBuilder, но для упрощения
-    # просто обработаем каждое фото отдельно и предложим стиль после первого.
-    # Это учебный вариант, который демонстрирует концепцию.
     if message.media_group_id not in album_buffer:
         album_buffer[message.media_group_id] = []
     album_buffer[message.media_group_id].append(message)
 
-    # Если альбом ещё не завершён, просто выходим.
-    # Для простоты будем считать альбом завершённым после 1-го фото (не идеально, но работает).
-    # В реальном проекте нужно использовать таймер, но здесь для примера сойдёт.
     if len(album_buffer[message.media_group_id]) == 1:
-        # Анализируем первое фото и затем предлагаем стиль для всех
         first_msg = album_buffer[message.media_group_id][0]
         await process_photo(first_msg, state, single=False, album_messages=album_buffer[message.media_group_id])
-    # Остальные фото будут проигнорированы (или можно собирать и добавить логику)
 
-album_buffer = {}  # временное хранилище для группировки альбомов
+album_buffer = {}
 
 async def process_photo(message: Message, state: FSMContext, single: bool = True, album_messages: list = None):
-    """Универсальная функция для обработки одного или нескольких фото."""
     if album_messages is None:
         album_messages = [message]
 
@@ -661,24 +610,20 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
 
-    # Сбрасываем состояние
     current_state = await state.get_state()
     if current_state in [PhotoStates.waiting_for_style, PhotoStates.waiting_for_qa]:
         await message.answer(loc["busy_photo_override"])
     await state.clear()
 
     if not single:
-        # Альбом
         await message.answer(loc["album_detected"])
         await state.set_state(PhotoStates.waiting_for_album_style)
     else:
         await state.set_state(PhotoStates.waiting_for_photo)
 
-    # Скачиваем и анализируем только первое фото (для альбома тоже)
     photo_msg = album_messages[0]
     photo_id = photo_msg.photo[-1].file_id
 
-    # Проверка размера (на первом фото)
     try:
         file_info = await bot.get_file(photo_id)
         file_size_kb = file_info.file_size / 1024
@@ -692,7 +637,6 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
     await bot.send_chat_action(message.chat.id, "typing")
 
     try:
-        # Скачиваем первое фото для анализа
         file_info = await bot.get_file(photo_id)
         file_path = file_info.file_path
         download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
@@ -701,7 +645,6 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
             image_bytes = resp.content
         b64_img = base64.b64encode(image_bytes).decode()
 
-        # EXIF
         exif_info = ""
         try:
             image_stream = io.BytesIO(image_bytes)
@@ -725,7 +668,6 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         analysis_text = await ask_yandex(full_prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis_text)
 
-        # Сохраняем base64 всех фото для альбома
         all_b64 = []
         for msg in album_messages:
             fid = msg.photo[-1].file_id
@@ -736,11 +678,9 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
                 all_b64.append(base64.b64encode(r.content).decode())
 
         if not single:
-            # Сохраняем список b64 и переходим к выбору стиля для альбома
             await state.update_data(album_b64=all_b64, lang=lang)
             await message.answer(loc["album_choose_style"], reply_markup=get_style_keyboard(lang))
         else:
-            # Одиночное фото – как раньше
             recommended = suggest_styles(analysis_text)
             await state.update_data(b64_image=b64_img, lang=lang)
             await state.set_state(PhotoStates.waiting_for_style)
@@ -868,7 +808,7 @@ async def process_album_style(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(loc["qa_done"])
     await callback.answer()
 
-# ---------- Q&A (без изменений) ----------
+# ---------- Q&A ----------
 @dp.callback_query(PhotoStates.waiting_for_qa, F.data.startswith("qa_"))
 async def process_qa(callback: CallbackQuery, state: FSMContext):
     qa = callback.data
@@ -1045,27 +985,6 @@ async def handle_sticker(message: Message):
 @dp.message(PhotoStates.waiting_for_qa)
 async def text_in_busy_state(message: Message):
     await message.answer("🦊 Я сейчас занята обработкой фото. Выбери кнопку или дождись завершения.")
-
-# ---------- Ежедневный совет (функция) ----------
-async def send_daily_tip():
-    """Отправляет совет дня всем пользователям."""
-    for user_id in all_users:
-        try:
-            # случайный совет на русском (можно расширить на английский)
-            tip = random.choice(LOCALE["ru"]["daily_tips"])
-            # можно добавить проверку языка пользователя, но упростим
-            await bot.send_message(user_id, f"{LOCALE['ru']['daily_tip_intro']} {tip}")
-        except Exception as e:
-            logger.warning(f"Не удалось отправить совет пользователю {user_id}: {e}")
-
-# ---------- Эндпоинт для cron (Daily Tip) ----------
-@app.get("/daily-tip")
-async def trigger_daily_tip(request: Request):
-    secret = request.headers.get("X-Cron-Secret", "")
-    if secret != CRON_SECRET:
-        return Response("Unauthorized", status_code=401)
-    await send_daily_tip()
-    return {"status": "ok", "sent_to": len(all_users)}
 
 # ---------- Inline-режим ----------
 @dp.inline_query()
