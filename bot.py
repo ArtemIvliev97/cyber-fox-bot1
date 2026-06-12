@@ -1031,7 +1031,24 @@ async def inline_query_handler(inline_query: InlineQuery):
     )
     await inline_query.answer([result], cache_time=1)
 
-# ---------- PWA API ----------
+# ---------- FastAPI ----------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+    try:
+        await bot.set_webhook(webhook_url)
+        logger.info(f"Webhook установлен на {webhook_url}")
+    except Exception as e:
+        logger.error(f"Не удалось установить вебхук: {e}")
+    yield
+    await bot.session.close()
+    save_stats()
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# PWA API (теперь после создания app)
 class ChatRequest(BaseModel):
     message: str
 
@@ -1057,23 +1074,6 @@ async def api_analyze(file: UploadFile = File(...)):
     prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
     analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
     return {"reply": analysis}
-
-# ---------- FastAPI ----------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    try:
-        await bot.set_webhook(webhook_url)
-        logger.info(f"Webhook установлен на {webhook_url}")
-    except Exception as e:
-        logger.error(f"Не удалось установить вебхук: {e}")
-    yield
-    await bot.session.close()
-    save_stats()
-
-app = FastAPI(lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post(WEBHOOK_PATH)
 async def webhook(request: Request):
