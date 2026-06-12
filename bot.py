@@ -13,7 +13,10 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import exifread
 from PIL import Image, ImageDraw, ImageFont
 
@@ -67,6 +70,7 @@ def save_stats():
     with open(STATS_FILE, "w") as f:
         json.dump(user_stats, f)
 
+# Мини-уроки
 LESSONS = [
     {
         "title": "Основы композиции",
@@ -77,10 +81,20 @@ LESSONS = [
             "Негативное пространство подчёркивает объект.",
             "Отлично! Примени это в следующем кадре. 📸"
         ]
+    },
+    {
+        "title": "Работа со светом",
+        "steps": [
+            "Золотой час: через час после рассвета или до заката.",
+            "Синий час: сразу после заката – глубокое небо.",
+            "Контровой свет: источник сзади – силуэт.",
+            "Заполняющий свет: отражатель или вспышка смягчают тени.",
+            "Супер! Теперь ты управляешь светом. ✨"
+        ]
     }
 ]
 
-# ---------- Локализация (полная) ----------
+# ---------- Локализация ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -589,7 +603,7 @@ async def cmd_lang(message: Message, state: FSMContext):
     current_lang = data.get("lang", "ru")
     new_lang = "en" if current_lang == "ru" else "ru"
     await state.update_data(lang=new_lang)
-    await message.answer(LOCALE["ru"]["lang_switched"])  # пока только русский
+    await message.answer(LOCALE["ru"]["lang_switched"])
 
 @dp.message(Command("voice"))
 async def cmd_voice(message: Message, state: FSMContext):
@@ -679,7 +693,6 @@ async def main_magic(cb: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "podcast")
 async def main_podcast_cb(cb: CallbackQuery):
-    # вызываем команду podcast напрямую
     await cmd_podcast(cb.message, dp.storage)
     await cb.answer()
 
@@ -714,10 +727,231 @@ async def main_commands_cb(cb: CallbackQuery):
     await cb.message.edit_text(LOCALE["ru"]["commands_list"])
     await cb.answer()
 
-# ---------- Обработка фото и альбомов (кратко, без дублирования всего кода) ----------
-# Здесь должны быть реализованы process_photo, handle_single_photo, handle_album, process_style_single, process_album_style, qa и т.д.
-# Они есть в предыдущей полной версии. Для экономии места я опускаю их, но они ОБЯЗАТЕЛЬНЫ.
-# В реальном коде они должны присутствовать.
+# ---------- Обработка одиночного фото ----------
+@dp.message(F.photo, F.media_group_id == None)
+async def handle_single_photo(message: Message, state: FSMContext):
+    await process_photo(message, state, single=True)
+
+# ---------- Обработка альбома ----------
+album_buffer = {}
+
+@dp.message(F.media_group_id)
+async def handle_album(message: Message, state: FSMContext):
+    gid = message.media_group_id
+    if gid not in album_buffer:
+        album_buffer[gid] = []
+    album_buffer[gid].append(message)
+    if len(album_buffer[gid]) == 1:
+        await process_photo(message, state, single=False, album_messages=album_buffer[gid])
+
+async def process_photo(message: Message, state: FSMContext, single: bool = True, album_messages: list = None):
+    if album_messages is None:
+        album_messages = [message]
+    await save_user(message.from_user.id)
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    current_state = await state.get_state()
+    if current_state in [PhotoStates.waiting_for_style, PhotoStates.waiting_for_qa]:
+        await message.answer(loc["busy_photo_override"])
+    await state.clear()
+    if not single:
+        await message.answer(loc["album_detected"])
+        await state.set_state(PhotoStates.waiting_for_album_style)
+    else:
+        await state.set_state(PhotoStates.waiting_for_photo)
+    photo_msg = album_messages[0]
+    photo_id = photo_msg.photo[-1].file_id
+    try:
+        file_info = await bot.get_file(photo_id)
+        if file_info.file_size / 1024 < 5:
+            await message.answer(loc["small_photo"])
+            return
+    except: pass
+    await message.answer(loc["analysis_start"])
+    await bot.send_chat_action(message.chat.id, "typing")
+    try:
+        file_info = await bot.get_file(photo_id)
+        download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(download_url)
+            image_bytes = resp.content
+        b64_img = base64.b64encode(image_bytes).decode()
+        exif_info = ""
+        try:
+            tags = exifread.process_file(BytesIO(image_bytes), details=False)
+            if tags:
+                parts = []
+                if 'EXIF ExposureTime' in tags: parts.append(f"Выдержка: {tags['EXIF ExposureTime']}")
+                if 'EXIF FNumber' in tags: parts.append(f"Диафрагма: f/{tags['EXIF FNumber'].values[0]}")
+                if 'EXIF ISOSpeedRatings' in tags: parts.append(f"ISO: {tags['EXIF ISOSpeedRatings']}")
+                if 'EXIF FocalLength' in tags: parts.append(f"Фокусное: {tags['EXIF FocalLength']} мм")
+                if parts: exif_info = "Реальные параметры съёмки: " + "; ".join(parts) + "."
+        except: pass
+        prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
+        analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
+        await message.answer(analysis)
+        # статистика
+        user = str(message.from_user.id)
+        if user not in user_stats: user_stats[user] = {}
+        user_stats[user]["photos_analyzed"] = user_stats[user].get("photos_analyzed", 0) + 1
+        save_stats()
+        # собрать b64 для альбома
+        all_b64 = []
+        for msg in album_messages:
+            fid = msg.photo[-1].file_id
+            fi = await bot.get_file(fid)
+            durl = f"https://api.telegram.org/file/bot{TOKEN}/{fi.file_path}"
+            async with httpx.AsyncClient() as client:
+                r = await client.get(durl)
+                all_b64.append(base64.b64encode(r.content).decode())
+        if not single:
+            await state.update_data(album_b64=all_b64, lang=lang)
+            await message.answer(loc["album_choose_style"], reply_markup=get_style_keyboard(lang))
+        else:
+            await state.update_data(b64_image=b64_img, lang=lang)
+            await state.set_state(PhotoStates.waiting_for_style)
+            await message.answer("Хочешь применить один из моих плёночных стилей? 🎞️", reply_markup=get_style_choice_keyboard(lang))
+    except Exception as e:
+        logger.error(f"Analysis error: {e}")
+        await message.answer("😿 Что-то пошло не так во время анализа.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+
+# ---------- Стили и пресеты (одиночные и альбом) ----------
+@dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
+async def choose_style(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await cb.message.edit_text(LOCALE[lang]["choose_style"], reply_markup=get_style_keyboard(lang))
+    await cb.answer()
+
+@dp.callback_query(PhotoStates.waiting_for_style, F.data == "skip_style")
+async def skip_style(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await cb.message.edit_text(LOCALE[lang]["skip_style"])
+    await state.set_state(PhotoStates.waiting_for_photo)
+    await cb.answer()
+
+@dp.callback_query(PhotoStates.waiting_for_style, F.data == "all_styles")
+async def show_all_styles(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await cb.message.edit_text(LOCALE[lang]["choose_style"], reply_markup=get_style_keyboard(lang))
+    await cb.answer()
+
+@dp.callback_query(PhotoStates.waiting_for_style, F.data.startswith("style_"))
+async def process_style_single(cb: CallbackQuery, state: FSMContext):
+    global remaining_generations
+    chosen = cb.data
+    style_info = FILM_PROMPTS.get(chosen, "универсальный стиль")
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    if GENERATION_LIMIT > 0 and remaining_generations <= 0:
+        await cb.message.edit_text("Ох... Мой ИИ-аккумулятор сел...")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await cb.answer()
+        return
+    await cb.message.edit_text(loc["style_processing"])
+    await bot.send_chat_action(cb.message.chat.id, "typing")
+    b64 = data.get("b64_image")
+    if not b64:
+        await cb.message.edit_text("😿 Фото потерялось.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        return
+    try:
+        prompt = BASE_PROMPT.format(style_info=style_info)
+        ai_text = await ask_yandex(prompt, max_tokens="2000", temperature=0.6)
+        if GENERATION_LIMIT > 0: remaining_generations -= 1
+        xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
+        if xml_match:
+            xml_content = xml_match.group(1).strip()
+            clean = ai_text.replace(xml_match.group(0), "").strip()
+            if clean: await cb.message.answer(clean)
+            await cb.message.answer_document(BufferedInputFile(xml_content.encode(), filename=f"{chosen}.xmp"),
+                                             caption=loc["preset_caption"])
+        else:
+            await cb.message.answer(ai_text)
+        # статистика
+        user = str(cb.from_user.id)
+        if user not in user_stats: user_stats[user] = {}
+        user_stats[user]["presets_generated"] = user_stats[user].get("presets_generated", 0) + 1
+        save_stats()
+        await state.set_state(PhotoStates.waiting_for_qa)
+        await cb.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
+    except Exception as e:
+        logger.error(f"Style error: {e}")
+        await cb.message.edit_text("😿 Не получилось создать пресет.")
+        await state.set_state(PhotoStates.waiting_for_style)
+    await cb.answer()
+
+@dp.callback_query(PhotoStates.waiting_for_album_style, F.data.startswith("style_"))
+async def process_album_style(cb: CallbackQuery, state: FSMContext):
+    global remaining_generations
+    chosen = cb.data
+    style_info = FILM_PROMPTS.get(chosen, "универсальный стиль")
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    album_b64 = data.get("album_b64", [])
+    if not album_b64:
+        await cb.message.edit_text("😿 Альбом потерялся.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await cb.answer()
+        return
+    if GENERATION_LIMIT > 0 and remaining_generations < len(album_b64):
+        await cb.message.edit_text("Ох... Не хватает энергии на альбом.")
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await cb.answer()
+        return
+    await cb.message.edit_text(loc["style_processing"] + " (альбом)")
+    await bot.send_chat_action(cb.message.chat.id, "typing")
+    zip_buf = BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, b64 in enumerate(album_b64):
+            prompt = BASE_PROMPT.format(style_info=style_info)
+            ai_text = await ask_yandex(prompt, max_tokens="1500", temperature=0.6)
+            xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
+            if xml_match:
+                zf.writestr(f"preset_{i+1}_{chosen}.xmp", xml_match.group(1).strip())
+            if GENERATION_LIMIT > 0: remaining_generations -= 1
+    zip_buf.seek(0)
+    await cb.message.answer_document(BufferedInputFile(zip_buf.read(), filename="ari_presets.zip"),
+                                     caption=loc["album_preset_caption"])
+    # статистика альбома
+    user = str(cb.from_user.id)
+    if user not in user_stats: user_stats[user] = {}
+    user_stats[user]["album_used"] = True
+    save_stats()
+    await state.set_state(PhotoStates.waiting_for_photo)
+    await cb.message.answer(loc["qa_done"])
+    await cb.answer()
+
+# ---------- Q&A ----------
+@dp.callback_query(PhotoStates.waiting_for_qa, F.data.startswith("qa_"))
+async def process_qa(cb: CallbackQuery, state: FSMContext):
+    qa = cb.data
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    loc = LOCALE[lang]
+    if qa == "qa_done":
+        await cb.message.edit_text(loc["qa_done"])
+        await state.set_state(PhotoStates.waiting_for_photo)
+    elif qa == "new_analysis":
+        await state.set_state(PhotoStates.waiting_for_photo)
+        await cb.message.edit_text("🦊 Жду новый кадр!")
+    else:
+        answers = {
+            "qa_wb": "🌡️ Баланс белого: поправь ползунок Temp, для улицы 5500-6500K.",
+            "qa_sky": "⛅ Пересветы спасаем: Highlights вниз, градиентный фильтр.",
+            "qa_shadows": "🌑 Тени: Shadows вправо, но осторожно с шумами.",
+            "qa_crop": "📐 Кадрирование: правило третей.",
+            "qa_face": "Так-так-так... 👀 Не вижу лица."
+        }
+        await cb.message.answer(answers.get(qa, "🦊 Анализирую..."))
+        await cb.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
+    await cb.answer()
 
 # ---------- Голосовые сообщения ----------
 @dp.message(F.voice)
@@ -732,21 +966,26 @@ async def voice_handler(message: Message, state: FSMContext):
     file_id = message.voice.file_id
     file = await bot.get_file(file_id)
     file_bytes = await bot.download_file(file.file_path)
-    audio_bytes = file_bytes.read()
+    audio = file_bytes.read()
     await bot.send_chat_action(message.chat.id, "typing")
-    text = await recognize_speech(audio_bytes, lang_code)
+    text = await recognize_speech(audio, lang_code)
     if not text:
         await message.answer(loc["voice_unrecognized"])
         return
-    if any(word in text.lower() for word in ["проанализируй", "разбери фото", "оцени фото"]):
+    if any(w in text.lower() for w in ["проанализируй", "разбери фото", "оцени фото"]):
         await message.answer(loc["voice_analysis_request"])
         return
-    reply_text = await ask_ari_with_context(str(message.from_user.id), text)
-    corrected = fix_ari_pronunciation(reply_text)
-    voice_bytes = await synthesize_speech(corrected, lang_code, emotion)
-    if voice_bytes:
-        await message.answer_voice(BufferedInputFile(voice_bytes, filename="ari_voice.ogg"))
-    await message.answer(reply_text)
+    reply = await ask_ari_with_context(str(message.from_user.id), text)
+    corrected = fix_ari_pronunciation(reply)
+    voice = await synthesize_speech(corrected, lang_code, emotion)
+    if voice:
+        await message.answer_voice(BufferedInputFile(voice, filename="ari_voice.ogg"))
+    await message.answer(reply)
+    # статистика голоса
+    user = str(message.from_user.id)
+    if user not in user_stats: user_stats[user] = {}
+    user_stats[user]["voice_used"] = True
+    save_stats()
 
 # ---------- Текстовый чат с контекстом ----------
 @dp.message(F.text & ~F.text.startswith("/"))
@@ -756,59 +995,83 @@ async def smart_chat(message: Message, state: FSMContext):
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
     user_context[user_id].append({"role": "user", "text": message.text})
-
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
-
-    if any(phrase in message.text.lower() for phrase in ["ты где", "где ты", "покажись", "ари, ты тут"]):
+    if any(p in message.text.lower() for p in ["ты где", "где ты", "покажись"]):
         await message.answer(loc["where_are_you_reply"])
         return
-
-    if any(word in message.text.lower() for word in ["проанализируй", "разбери фото", "оцени фото"]):
+    if any(w in message.text.lower() for w in ["проанализируй", "разбери фото", "оцени фото"]):
         await message.answer(loc["ask_for_photo"])
         return
-
-    if await state.get_state() == PhotoStates.waiting_for_photo:
+    cur = await state.get_state()
+    if cur == PhotoStates.waiting_for_photo:
         await bot.send_chat_action(message.chat.id, "typing")
-        await asyncio.sleep(random.uniform(0.5, 2.0))
+        await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
         user_context[user_id].append({"role": "assistant", "text": reply})
         if random.random() < 0.2:
             reply = random.choice(loc["compliments"]) + "\n" + reply
         await message.answer(reply)
         return
-
-    if await state.get_state() is not None:
+    if cur is not None:
         return
-
-    if any(phrase in message.text.lower() for phrase in ["что ты умеешь", "что умеешь", "что можешь"]):
+    if any(p in message.text.lower() for p in ["что ты умеешь", "что умеешь"]):
         prompt = loc["what_prompt"]
         reply = await ask_ari(prompt)
         await message.answer(reply)
         return
-
     await bot.send_chat_action(message.chat.id, "typing")
-    await asyncio.sleep(random.uniform(0.5, 2.0))
+    await asyncio.sleep(random.uniform(0.5, 2))
     reply = await ask_ari_with_context(user_id, message.text)
     user_context[user_id].append({"role": "assistant", "text": reply})
     if random.random() < 0.2:
         reply = random.choice(loc["compliments"]) + "\n" + reply
     await message.answer(reply)
 
-# ---------- Инлайн ----------
+# ---------- Документы ----------
+@dp.message(F.document)
+async def handle_document(message: Message, state: FSMContext):
+    await message.answer(LOCALE["ru"]["document_error"])
+
+# ---------- Inline ----------
 @dp.inline_query()
 async def inline_query_handler(inline_query: InlineQuery):
     result = InlineQueryResultArticle(
-        id="1",
-        title="Открыть Ари",
-        description="Начать диалог с кибер-лисичкой",
+        id="1", title="Открыть Ари", description="Начать диалог с кибер-лисичкой",
         input_message_content=InputTextMessageContent(message_text="/start"),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Перейти в чат", url=f"https://t.me/{(await bot.me()).username}")]
         ])
     )
     await inline_query.answer([result], cache_time=1)
+
+# ---------- PWA API ----------
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/api/chat")
+async def api_chat(chat_req: ChatRequest):
+    reply = await ask_ari_with_context("pwa_user", chat_req.message)
+    return {"reply": reply}
+
+@app.post("/api/analyze")
+async def api_analyze(file: UploadFile = File(...)):
+    contents = await file.read()
+    b64_img = base64.b64encode(contents).decode()
+    exif_info = ""
+    try:
+        tags = exifread.process_file(BytesIO(contents), details=False)
+        if tags:
+            parts = []
+            if 'EXIF ExposureTime' in tags: parts.append(f"Выдержка: {tags['EXIF ExposureTime']}")
+            if 'EXIF FNumber' in tags: parts.append(f"Диафрагма: f/{tags['EXIF FNumber'].values[0]}")
+            if 'EXIF ISOSpeedRatings' in tags: parts.append(f"ISO: {tags['EXIF ISOSpeedRatings']}")
+            if parts: exif_info = "Реальные параметры съёмки: " + "; ".join(parts) + "."
+    except: pass
+    prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
+    analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
+    return {"reply": analysis}
 
 # ---------- FastAPI ----------
 @asynccontextmanager
@@ -824,6 +1087,8 @@ async def lifespan(app: FastAPI):
     save_stats()
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post(WEBHOOK_PATH)
 async def webhook(request: Request):
