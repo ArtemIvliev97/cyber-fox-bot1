@@ -13,10 +13,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
-from fastapi import FastAPI, Request, Response, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi import FastAPI, Request, Response
 import exifread
 from PIL import Image, ImageDraw, ImageFont
 
@@ -473,7 +470,7 @@ async def cmd_news(message: Message, state: FSMContext):
     await message.answer(news)
 
 @dp.message(Command("podcast"))
-async def cmd_podcast(message: Message, state: FSMContext):
+async def cmd_podcast(message: Message):
     await bot.send_chat_action(message.chat.id, "record_voice")
     text = await ask_ari(LOCALE["ru"]["podcast_prompt"])
     voice = await synthesize_speech(text, emotion="good")
@@ -683,7 +680,7 @@ async def main_magic(cb: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "podcast")
 async def main_podcast_cb(cb: CallbackQuery):
-    await cmd_podcast(cb.message, dp.storage)
+    await cmd_podcast(cb.message)
     await cb.answer()
 
 @dp.callback_query(F.data == "frame")
@@ -1045,35 +1042,6 @@ async def lifespan(app: FastAPI):
     save_stats()
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# PWA API (теперь после создания app)
-class ChatRequest(BaseModel):
-    message: str
-
-@app.post("/api/chat")
-async def api_chat(chat_req: ChatRequest):
-    reply = await ask_ari_with_context("pwa_user", chat_req.message)
-    return {"reply": reply}
-
-@app.post("/api/analyze")
-async def api_analyze(file: UploadFile = File(...)):
-    contents = await file.read()
-    b64_img = base64.b64encode(contents).decode()
-    exif_info = ""
-    try:
-        tags = exifread.process_file(BytesIO(contents), details=False)
-        if tags:
-            parts = []
-            if 'EXIF ExposureTime' in tags: parts.append(f"Выдержка: {tags['EXIF ExposureTime']}")
-            if 'EXIF FNumber' in tags: parts.append(f"Диафрагма: f/{tags['EXIF FNumber'].values[0]}")
-            if 'EXIF ISOSpeedRatings' in tags: parts.append(f"ISO: {tags['EXIF ISOSpeedRatings']}")
-            if parts: exif_info = "Реальные параметры съёмки: " + "; ".join(parts) + "."
-    except: pass
-    prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
-    analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
-    return {"reply": analysis}
 
 @app.post(WEBHOOK_PATH)
 async def webhook(request: Request):
