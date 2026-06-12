@@ -48,7 +48,7 @@ class PhotoStates(StatesGroup):
     in_lesson = State()
 
 # ---------- Хранилища ----------
-user_context = {}   # user_id -> deque(maxlen=5)
+user_context = {}
 user_stats = {}
 ACHIEVEMENTS = {
     "first_photo": "📸 Первый кадр",
@@ -80,16 +80,6 @@ LESSONS = [
             "Симметрия и паттерны создают гармонию.",
             "Негативное пространство подчёркивает объект.",
             "Отлично! Примени это в следующем кадре. 📸"
-        ]
-    },
-    {
-        "title": "Работа со светом",
-        "steps": [
-            "Золотой час: через час после рассвета или до заката.",
-            "Синий час: сразу после заката – глубокое небо.",
-            "Контровой свет: источник сзади – силуэт.",
-            "Заполняющий свет: отражатель или вспышка смягчают тени.",
-            "Супер! Теперь ты управляешь светом. ✨"
         ]
     }
 ]
@@ -791,12 +781,10 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         prompt = (exif_info + "\n" + ANALYSIS_PROMPT) if exif_info else ANALYSIS_PROMPT
         analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis)
-        # статистика
         user = str(message.from_user.id)
         if user not in user_stats: user_stats[user] = {}
         user_stats[user]["photos_analyzed"] = user_stats[user].get("photos_analyzed", 0) + 1
         save_stats()
-        # собрать b64 для альбома
         all_b64 = []
         for msg in album_messages:
             fid = msg.photo[-1].file_id
@@ -817,7 +805,7 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         await message.answer("😿 Что-то пошло не так во время анализа.")
         await state.set_state(PhotoStates.waiting_for_photo)
 
-# ---------- Стили и пресеты (одиночные и альбом) ----------
+# ---------- Стили и пресеты ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
 async def choose_style(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -873,7 +861,6 @@ async def process_style_single(cb: CallbackQuery, state: FSMContext):
                                              caption=loc["preset_caption"])
         else:
             await cb.message.answer(ai_text)
-        # статистика
         user = str(cb.from_user.id)
         if user not in user_stats: user_stats[user] = {}
         user_stats[user]["presets_generated"] = user_stats[user].get("presets_generated", 0) + 1
@@ -919,7 +906,6 @@ async def process_album_style(cb: CallbackQuery, state: FSMContext):
     zip_buf.seek(0)
     await cb.message.answer_document(BufferedInputFile(zip_buf.read(), filename="ari_presets.zip"),
                                      caption=loc["album_preset_caption"])
-    # статистика альбома
     user = str(cb.from_user.id)
     if user not in user_stats: user_stats[user] = {}
     user_stats[user]["album_used"] = True
@@ -981,7 +967,6 @@ async def voice_handler(message: Message, state: FSMContext):
     if voice:
         await message.answer_voice(BufferedInputFile(voice, filename="ari_voice.ogg"))
     await message.answer(reply)
-    # статистика голоса
     user = str(message.from_user.id)
     if user not in user_stats: user_stats[user] = {}
     user_stats[user]["voice_used"] = True
