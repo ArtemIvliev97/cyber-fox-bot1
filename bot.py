@@ -103,6 +103,8 @@ LOCALE = {
         "lesson_prev": "⬅️ Назад",
         "lesson_finish": "✅ Завершить",
         "admin_features": "🛠 Все функции бота Ари:\n- Анализ фото, подбор стилей, генерация пресетов\n- Пакетная обработка альбомов\n- Голосовые ответы и подкасты\n- Разные тембры голоса\n- Наложение рамки плёнки\n- Создание стикера из фото\n- Мини-уроки фотографии\n- Новости мира фото\n- Статистика и достижения\n- Запоминание контекста\n- Инлайн-режим\n- Рассылка (broadcast)\n... и многое другое!",
+        "settings": "🛠 Настройки временно недоступны. Я использую оптимальные параметры качества.",
+        "premium": "⚡️ Премиум-возможности пока в разработке. Сейчас тебе доступен бесплатный функционал без ограничений!",
         "choose_style": "🎞️ Выбери стиль",
         "skip_style": "✅ Разбор завершён! Жду новое фото 📸",
         "all_styles": "📋 Все стили",
@@ -496,6 +498,14 @@ async def cmd_stats(message: Message):
         achievements=", ".join(achievements) if achievements else "Пока нет"
     )
     await message.answer(text)
+
+@dp.message(Command("settings"))
+async def cmd_settings(message: Message, state: FSMContext):
+    await message.answer(LOCALE["ru"]["settings"])
+
+@dp.message(Command("premium"))
+async def cmd_premium(message: Message, state: FSMContext):
+    await message.answer(LOCALE["ru"]["premium"])
 
 @dp.message(Command("frame"))
 async def cmd_frame(message: Message, state: FSMContext):
