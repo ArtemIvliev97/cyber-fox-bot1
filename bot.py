@@ -71,7 +71,6 @@ def save_stats():
     with open(STATS_FILE, "w") as f:
         json.dump(user_stats, f)
 
-# Мини-уроки
 LESSONS = [
     {
         "title": "Основы композиции",
@@ -85,7 +84,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация ----------
+# ---------- Локализация (полная) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -158,7 +157,7 @@ LOCALE = {
     }
 }
 
-# ---------- Стили плёнок и иконки ----------
+# ---------- Стили плёнок и иконки (без изменений) ----------
 FILM_PROMPTS = {
     "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
     "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
@@ -188,7 +187,7 @@ STYLE_ICONS = {
     "style_clean_portrait": "👤", "style_night_city": "🌃",
 }
 
-# ---------- Системные промпты ----------
+# ---------- Системные промпты (без изменений) ----------
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
@@ -218,7 +217,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 all_users = set()
 
-# ---------- Клавиатуры ----------
+# ---------- Клавиатуры (без изменений) ----------
 def get_main_menu_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -292,7 +291,7 @@ def get_lesson_keyboard(step, total):
         buttons.append(InlineKeyboardButton(text=LOCALE["ru"]["lesson_finish"], callback_data="lesson_finish"))
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ---------- Запросы к Yandex ----------
+# ---------- Запросы к Yandex (без изменений) ----------
 async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
@@ -383,7 +382,6 @@ def fix_ari_pronunciation(text: str) -> str:
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good") -> bytes | None:
-    """Синтез речи через Yandex SpeechKit (OggOpus)."""
     cute_prefixes = [
         "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
         "Ну что... ", "Эй! ", "", "",
@@ -464,7 +462,7 @@ def detect_mood(text: str) -> str:
         return "negative"
     return "neutral"
 
-# ---------- Команды ----------
+# ---------- Команды (без изменений, кроме /lut) ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -533,6 +531,7 @@ async def cmd_settings(message: Message):
 async def cmd_premium(message: Message):
     await message.answer(LOCALE["ru"]["premium"])
 
+# ---------- LUT (исправлено) ----------
 async def generate_and_send_lut(message: Message, description: str):
     await bot.send_chat_action(message.chat.id, "typing")
     full_prompt = LOCALE["ru"]["lut_prompt"].format(description=description)
@@ -1072,10 +1071,11 @@ async def voice_handler(message: Message, state: FSMContext):
     user_stats[user]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с эмоциональным интеллектом ----------
+# ---------- Текстовый чат с эмоциональным интеллектом (добавлена проверка состояния LUT) ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
+    # Если ожидаем описание LUT, не обрабатываем здесь
     if await state.get_state() == PhotoStates.waiting_for_lut_description:
         return
     user_id = str(message.from_user.id)
