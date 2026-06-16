@@ -2,6 +2,7 @@ import base64, logging, os, re, httpx, asyncio, random, io, zipfile, json
 from collections import deque
 from contextlib import asynccontextmanager
 from io import BytesIO
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
@@ -43,10 +44,12 @@ class PhotoStates(StatesGroup):
     waiting_for_sticker = State()
     waiting_for_voice_emotion = State()
     in_lesson = State()
+    waiting_for_reminder = State()
 
 # ---------- Хранилища ----------
 user_context = {}
 user_stats = {}
+user_reminders = {}
 ACHIEVEMENTS = {
     "first_photo": "📸 Первый кадр",
     "10_photos": "🔥 10 фотографий проанализировано",
@@ -86,11 +89,15 @@ LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
         "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию (или сразу несколько!) — я проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет(ы) для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
-        "commands_list": "/start, /help, /commands, /menu, /what, /news, /podcast, /stats, /frame, /makesticker, /voicemode, /lesson, /lang, /voice, /generate, /cancel, /premium, /settings, /admin, /broadcast",
+        "commands_list": "/start, /help, /commands, /menu, /what, /news, /podcast, /stats, /frame, /makesticker, /voicemode, /lesson, /lang, /voice, /generate, /cancel, /premium, /settings, /lut, /remind, /post, /admin, /broadcast",
         "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
-        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии (камеры, объективы, выставки, приложения, тренды обработки). Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения. Не используй реальные даты, просто создай правдоподобную и вдохновляющую заметку.",
-        "podcast_intro": "🎙️ В эфире подкаст «Лисьи байки» с Ари! Сегодня поговорим о...",
+        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии. Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения.",
         "podcast_prompt": "Расскажи короткий увлекательный подкаст о фотографии (2-3 минуты чтения). Начни с приветствия слушателей, расскажи интересный факт или историю, дай практический совет. Будь в образе Ари — игривой и умной кибер-лисички.",
+        "lut_prompt": "Сгенерируй LUT-файл в формате .cube для видеомонтажа, основываясь на описании: {description}. В ответе пришли только содержимое файла внутри ``` ... ```.",
+        "remind_set": "⏰ Напоминание установлено на {time}. Я скажу: «{text}»",
+        "remind_trigger": "⏰ Напоминание! {text}",
+        "post_instruction": "📲 Чтобы опубликовать фото в Instagram, отправь мне картинку, а затем выбери стиль и получи пресет. После этого я пришлю тебе готовое изображение, которое можно сразу загрузить. В будущем я смогу публиковать сама!",
+        "creator_answer": "🦊 Мой создатель — Артём! Это он вдохнул в меня жизнь, настроил нейросети и научил разбираться в фотографии. Теперь я его верный цифровой лисёнок!",
         "frame_added": "🦊 Рамка плёнки добавлена! Держи свой стильный кадр.",
         "frame_prompt": "Пришли мне фото, на которое хочешь наложить рамку.",
         "sticker_done": "🦊 Вот твой будущий стикер! Отправь его в @Stickers, чтобы создать стикерпак.",
@@ -143,7 +150,10 @@ LOCALE = {
         ],
         "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
         "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
-        "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!"
+        "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!",
+        "mood_positive": ["Ты прям светишься! Обожаю твою энергию ✨", "У тебя отличное настроение, давай сделаем крутой кадр!", "Позитив зашкаливает! С таким настроем мы горы свернём 🦊"],
+        "mood_negative": ["Ой, кажется, тебе грустно... Давай я покажу тебе классный кадр, чтобы поднять настроение? 😊", "Не грусти! Помни, даже у плохого света есть своя прелесть. Хочешь, я подберу пресет под настроение?", "Иногда тени делают кадр глубже. Твоё настроение – это тоже часть искусства. Давай посмотрим на это вместе 🦊"],
+        "mood_neutral": ["Слушаю тебя внимательно! Что хочешь обсудить?", "Я тут, готова помочь с чем угодно. Спрашивай!", "Ты сегодня задумчивый... Давай я расскажу что-нибудь интересное из мира фото?"],
     }
 }
 
@@ -198,7 +208,10 @@ BASE_PROMPT = (
     "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
     "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
 )
-CHAT_PROMPT = "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. Учитывай историю диалога."
+CHAT_PROMPT = (
+    "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. "
+    "Определи настроение собеседника по сообщению и отвечай соответствующе: поддержи, пошути, прояви эмпатию."
+)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -438,6 +451,17 @@ def make_sticker(image_bytes: bytes) -> BytesIO:
     out.seek(0)
     return out
 
+# ---------- Эмоциональный анализ ----------
+def detect_mood(text: str) -> str:
+    positive = ["рад", "счастлив", "отлично", "супер", "круто", "ха-ха", "весело", "ура", "люблю", "обожаю"]
+    negative = ["грустно", "плохо", "тоска", "устал", "надоело", "бесит", "злой", "разочарован", "одиноко"]
+    text_lower = text.lower()
+    if any(w in text_lower for w in positive):
+        return "positive"
+    if any(w in text_lower for w in negative):
+        return "negative"
+    return "neutral"
+
 # ---------- Команды ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
@@ -500,12 +524,69 @@ async def cmd_stats(message: Message):
     await message.answer(text)
 
 @dp.message(Command("settings"))
-async def cmd_settings(message: Message, state: FSMContext):
+async def cmd_settings(message: Message):
     await message.answer(LOCALE["ru"]["settings"])
 
 @dp.message(Command("premium"))
-async def cmd_premium(message: Message, state: FSMContext):
+async def cmd_premium(message: Message):
     await message.answer(LOCALE["ru"]["premium"])
+
+@dp.message(Command("lut"))
+async def cmd_lut(message: Message):
+    prompt_text = message.text.replace("/lut", "", 1).strip()
+    if not prompt_text:
+        await message.answer("🎨 Опиши, какой LUT ты хочешь (например: «тёплый кинематографический» или «холодный неоновый»). Я сгенерирую файл .cube.")
+        return
+    await bot.send_chat_action(message.chat.id, "typing")
+    full_prompt = LOCALE["ru"]["lut_prompt"].format(description=prompt_text)
+    response = await ask_yandex(full_prompt, max_tokens="1000", temperature=0.5)
+    code_match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
+    if code_match:
+        lut_content = code_match.group(1).strip()
+        file = BufferedInputFile(lut_content.encode(), filename="ari_lut.cube")
+        await message.answer_document(file, caption="🦊 Вот твой LUT! Закидывай в DaVinci Resolve или Premiere Pro.")
+    else:
+        await message.answer("😿 Не получилось сгенерировать LUT. Попробуй другое описание.")
+
+@dp.message(Command("remind"))
+async def cmd_remind(message: Message):
+    args = message.text.replace("/remind", "", 1).strip()
+    if not args:
+        await message.answer("⏰ Использование: /remind <время> <текст>\nПример: /remind 10 минут Проверить экспозицию")
+        return
+    time_match = re.match(r"(\d+)\s*(минут|мин|часов|час)", args)
+    if not time_match:
+        await message.answer("⏰ Не поняла время. Напиши, например: /remind 5 минут Проверить свет")
+        return
+    amount = int(time_match.group(1))
+    unit = time_match.group(2)
+    if "час" in unit:
+        delta = timedelta(hours=amount)
+    else:
+        delta = timedelta(minutes=amount)
+    remind_time = datetime.now() + delta
+    remind_text = args[time_match.end():].strip()
+    if not remind_text:
+        remind_text = "Сделать что-то важное!"
+    user_id = str(message.from_user.id)
+    if user_id not in user_reminders:
+        user_reminders[user_id] = []
+    user_reminders[user_id].append((remind_time, remind_text))
+    asyncio.create_task(schedule_reminder(message.from_user.id, remind_time, remind_text))
+    await message.answer(LOCALE["ru"]["remind_set"].format(time=remind_time.strftime("%H:%M"), text=remind_text))
+
+async def schedule_reminder(user_id: int, remind_time: datetime, text: str):
+    delay = (remind_time - datetime.now()).total_seconds()
+    if delay > 0:
+        await asyncio.sleep(delay)
+        try:
+            await bot.send_message(user_id, LOCALE["ru"]["remind_trigger"].format(text=text))
+        except Exception as e:
+            logger.warning(f"Не удалось отправить напоминание: {e}")
+
+@dp.message(Command("post"))
+async def cmd_post(message: Message):
+    await message.answer(LOCALE["ru"]["post_instruction"])
 
 @dp.message(Command("frame"))
 async def cmd_frame(message: Message, state: FSMContext):
@@ -979,7 +1060,7 @@ async def voice_handler(message: Message, state: FSMContext):
     user_stats[user]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с контекстом ----------
+# ---------- Текстовый чат с эмоциональным интеллектом ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
@@ -990,33 +1071,70 @@ async def smart_chat(message: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
+
+    # Проверка на "кто создатель"
+    creator_keywords = [
+        "кто твой создатель", "кто тебя создал", "кто тебя сделал",
+        "кто твой автор", "кто тебя разработал", "чей ты проект",
+        "кто тебя придумал", "кто твой разработчик"
+    ]
+    if any(phrase in message.text.lower() for phrase in creator_keywords):
+        await message.answer(loc["creator_answer"])
+        return
+
+    # Определяем настроение
+    mood = detect_mood(message.text)
+
+    # Обработка специальных фраз
     if any(p in message.text.lower() for p in ["ты где", "где ты", "покажись"]):
         await message.answer(loc["where_are_you_reply"])
         return
     if any(w in message.text.lower() for w in ["проанализируй", "разбери фото", "оцени фото"]):
         await message.answer(loc["ask_for_photo"])
         return
+
     cur = await state.get_state()
     if cur == PhotoStates.waiting_for_photo:
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
         user_context[user_id].append({"role": "assistant", "text": reply})
+        if mood == "positive":
+            prefix = random.choice(loc["mood_positive"])
+            reply = prefix + " " + reply
+        elif mood == "negative":
+            prefix = random.choice(loc["mood_negative"])
+            reply = prefix + "\n" + reply
+        elif mood == "neutral" and random.random() < 0.3:
+            prefix = random.choice(loc["mood_neutral"])
+            reply = prefix + " " + reply
         if random.random() < 0.2:
             reply = random.choice(loc["compliments"]) + "\n" + reply
         await message.answer(reply)
         return
+
     if cur is not None:
         return
+
     if any(p in message.text.lower() for p in ["что ты умеешь", "что умеешь"]):
         prompt = loc["what_prompt"]
         reply = await ask_ari(prompt)
         await message.answer(reply)
         return
+
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2))
     reply = await ask_ari_with_context(user_id, message.text)
     user_context[user_id].append({"role": "assistant", "text": reply})
+    if mood == "positive":
+        prefix = random.choice(loc["mood_positive"])
+        reply = prefix + " " + reply
+    elif mood == "negative":
+        prefix = random.choice(loc["mood_negative"])
+        reply = prefix + "\n" + reply
+    elif mood == "neutral" and random.random() < 0.3:
+        prefix = random.choice(loc["mood_neutral"])
+        reply = prefix + " " + reply
     if random.random() < 0.2:
         reply = random.choice(loc["compliments"]) + "\n" + reply
     await message.answer(reply)
