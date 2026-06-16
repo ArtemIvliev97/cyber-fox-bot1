@@ -3,10 +3,6 @@ from collections import deque
 from contextlib import asynccontextmanager
 from io import BytesIO
 from datetime import datetime, timedelta
-import torch
-import wave
-import tempfile
-import subprocess
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
@@ -221,25 +217,6 @@ CHAT_PROMPT = (
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 all_users = set()
-device = torch.device('cpu')  # или 'cuda', если доступно
-tts_model = None
-
-def init_tts():
-    global tts_model
-    if tts_model is None:
-        try:
-            tts_model, _ = torch.hub.load(
-                repo_or_dir='snakers4/silero-models',
-                model='silero_tts',
-                language='ru',
-                speaker='ru_v3'
-            )
-            tts_model.to(device)
-            logger.info("Silero TTS загружена")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки Silero: {e}")
-            tts_model = None
-    return tts_model
 
 # ---------- Клавиатуры ----------
 def get_main_menu_keyboard(lang="ru"):
@@ -315,7 +292,7 @@ def get_lesson_keyboard(step, total):
         buttons.append(InlineKeyboardButton(text=LOCALE["ru"]["lesson_finish"], callback_data="lesson_finish"))
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ---------- Запросы к Yandex (без изменений) ----------
+# ---------- Запросы к Yandex ----------
 async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
@@ -406,57 +383,38 @@ def fix_ari_pronunciation(text: str) -> str:
     return re.sub(r'\bАри\b', 'А+ри', text)
 
 async def synthesize_speech(text: str, lang: str = "ru-RU", emotion: str = "good") -> bytes | None:
-    global tts_model
-    if tts_model is None:
-        init_tts()
-    if tts_model is None:
-        return None
-
-    cute_prefixes = ["Ой! ", "Хм-м... ", "Слушай... ", "", ""]
+    """Синтез речи через Yandex SpeechKit (OggOpus)."""
+    cute_prefixes = [
+        "Ой! ", "Хм-м... ", "Уи-и! ", "Слушай... ",
+        "Ну что... ", "Эй! ", "", "",
+        "Охохо! ", "Мрр-мяу?.. шучу, я же лиса! ", "Смотри-ка... "
+    ]
     prefix = random.choice(cute_prefixes)
     full_text = prefix + text
-    full_text = re.sub(r'[^\w\s.,!?\-:;()"»«]', '', full_text)
-    if len(full_text) > 300:
-        full_text = full_text[:300] + "..."
-
-    try:
-        audio = tts_model.apply_tts(
-            text=full_text,
-            speaker="xenia",
-            sample_rate=16000,
-            put_accent=True,
-            put_yo=True
-        )
-        pcm_bytes = (audio * 32768).clamp(-32768, 32767).to(torch.int16).numpy().tobytes()
-        return pcm_bytes
-    except Exception as e:
-        logger.error(f"Silero TTS error: {e}")
+    voice = random.choice(["alena", "oksana"])
+    url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
+    params = {
+        "text": full_text,
+        "lang": lang,
+        "voice": voice,
+        "emotion": emotion,
+        "speed": str(round(random.uniform(0.85, 0.95), 2)),
+        "format": "oggopus",
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers=headers, data=params, timeout=30.0)
+    if resp.status_code == 200:
+        return resp.content
+    else:
+        logger.error(f"TTS error: {resp.status_code}")
+        params.pop("emotion", None)
+        params["speed"] = "1.0"
+        async with httpx.AsyncClient() as client2:
+            resp2 = await client2.post(url, headers=headers, data=params, timeout=30.0)
+        if resp2.status_code == 200:
+            return resp2.content
         return None
-
-def pcm_to_ogg(pcm_bytes: bytes, sample_rate=16000) -> bytes:
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-        with wave.open(wav_file, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            wf.writeframes(pcm_bytes)
-        wav_path = wav_file.name
-
-    ogg_path = wav_path + '.ogg'
-    try:
-        subprocess.run([
-            'ffmpeg', '-y', '-i', wav_path, '-c:a', 'libopus', '-b:a', '32k', ogg_path
-        ], check=True, capture_output=True)
-        with open(ogg_path, 'rb') as f:
-            ogg_bytes = f.read()
-        return ogg_bytes
-    except Exception as e:
-        logger.error(f"FFmpeg error: {e}")
-        return None
-    finally:
-        os.unlink(wav_path)
-        if os.path.exists(ogg_path):
-            os.unlink(ogg_path)
 
 async def save_user(user_id: int):
     all_users.add(user_id)
@@ -543,11 +501,9 @@ async def cmd_news(message: Message, state: FSMContext):
 async def cmd_podcast(message: Message):
     await bot.send_chat_action(message.chat.id, "record_voice")
     text = await ask_ari(LOCALE["ru"]["podcast_prompt"])
-    pcm = await synthesize_speech(text, emotion="good")
-    if pcm:
-        ogg = pcm_to_ogg(pcm)
-        if ogg:
-            await message.answer_voice(BufferedInputFile(ogg, filename="podcast.ogg"))
+    voice = await synthesize_speech(text, emotion="good")
+    if voice:
+        await message.answer_voice(BufferedInputFile(voice, filename="podcast.ogg"))
     await message.answer(text)
 
 @dp.message(Command("stats"))
@@ -752,13 +708,10 @@ async def cmd_voice(message: Message, state: FSMContext):
         "Сегодня отличный день, чтобы сделать крутой кадр. Ты готов?"
     ]
     for phrase in phrases:
-        pcm = await synthesize_speech(phrase, emotion=emotion)
-        if pcm:
-            ogg = pcm_to_ogg(pcm)
-            if ogg:
-                await message.answer_voice(BufferedInputFile(ogg, filename="ari_test.ogg"))
-            else:
-                await message.answer("😿 Ошибка конвертации.")
+        corrected = fix_ari_pronunciation(phrase)
+        voice_bytes = await synthesize_speech(corrected, emotion=emotion)
+        if voice_bytes:
+            await message.answer_voice(BufferedInputFile(voice_bytes, filename="ari_test.ogg"))
         else:
             await message.answer("😿 Не получилось синтезировать голос.")
             break
@@ -1109,11 +1062,10 @@ async def voice_handler(message: Message, state: FSMContext):
         await message.answer(loc["voice_analysis_request"])
         return
     reply = await ask_ari_with_context(str(message.from_user.id), text)
-    pcm = await synthesize_speech(reply, lang_code, emotion)
-    if pcm:
-        ogg = pcm_to_ogg(pcm)
-        if ogg:
-            await message.answer_voice(BufferedInputFile(ogg, filename="ari_voice.ogg"))
+    corrected = fix_ari_pronunciation(reply)
+    voice = await synthesize_speech(corrected, lang_code, emotion)
+    if voice:
+        await message.answer_voice(BufferedInputFile(voice, filename="ari_voice.ogg"))
     await message.answer(reply)
     user = str(message.from_user.id)
     if user not in user_stats: user_stats[user] = {}
@@ -1224,7 +1176,6 @@ async def lifespan(app: FastAPI):
         logger.info(f"Webhook установлен на {webhook_url}")
     except Exception as e:
         logger.error(f"Не удалось установить вебхук: {e}")
-    init_tts()  # загружаем модель при старте
     yield
     await bot.session.close()
     save_stats()
