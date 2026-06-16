@@ -45,6 +45,7 @@ class PhotoStates(StatesGroup):
     waiting_for_voice_emotion = State()
     in_lesson = State()
     waiting_for_reminder = State()
+    waiting_for_lut_description = State()
 
 # ---------- Хранилища ----------
 user_context = {}
@@ -70,7 +71,6 @@ def save_stats():
     with open(STATS_FILE, "w") as f:
         json.dump(user_stats, f)
 
-# Мини-уроки
 LESSONS = [
     {
         "title": "Основы композиции",
@@ -84,7 +84,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация ----------
+# ---------- Локализация (полная) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -157,7 +157,7 @@ LOCALE = {
     }
 }
 
-# ---------- Стили плёнок и иконки ----------
+# ---------- Стили плёнок и иконки (без изменений) ----------
 FILM_PROMPTS = {
     "style_kodak_portra": "Kodak Portra 400 (тёплые тона кожи, мягкий контраст, золотистые оттенки)",
     "style_kodak_gold": "Kodak Gold 200 (насыщенные цвета, тёплые оттенки, винтажное настроение)",
@@ -187,7 +187,7 @@ STYLE_ICONS = {
     "style_clean_portrait": "👤", "style_night_city": "🌃",
 }
 
-# ---------- Системные промпты ----------
+# ---------- Системные промпты (без изменений) ----------
 SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
@@ -217,7 +217,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 all_users = set()
 
-# ---------- Клавиатуры ----------
+# ---------- Клавиатуры (без изменений) ----------
 def get_main_menu_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -291,7 +291,7 @@ def get_lesson_keyboard(step, total):
         buttons.append(InlineKeyboardButton(text=LOCALE["ru"]["lesson_finish"], callback_data="lesson_finish"))
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-# ---------- Запросы к Yandex ----------
+# ---------- Запросы к Yandex (без изменений) ----------
 async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
@@ -462,7 +462,7 @@ def detect_mood(text: str) -> str:
         return "negative"
     return "neutral"
 
-# ---------- Команды ----------
+# ---------- Команды (без изменений, кроме /lut) ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -531,14 +531,10 @@ async def cmd_settings(message: Message):
 async def cmd_premium(message: Message):
     await message.answer(LOCALE["ru"]["premium"])
 
-@dp.message(Command("lut"))
-async def cmd_lut(message: Message):
-    prompt_text = message.text.replace("/lut", "", 1).strip()
-    if not prompt_text:
-        await message.answer("🎨 Опиши, какой LUT ты хочешь (например: «тёплый кинематографический» или «холодный неоновый»). Я сгенерирую файл .cube.")
-        return
+# ---------- LUT (исправлено) ----------
+async def generate_and_send_lut(message: Message, description: str):
     await bot.send_chat_action(message.chat.id, "typing")
-    full_prompt = LOCALE["ru"]["lut_prompt"].format(description=prompt_text)
+    full_prompt = LOCALE["ru"]["lut_prompt"].format(description=description)
     response = await ask_yandex(full_prompt, max_tokens="1000", temperature=0.5)
     code_match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
     if code_match:
@@ -547,6 +543,21 @@ async def cmd_lut(message: Message):
         await message.answer_document(file, caption="🦊 Вот твой LUT! Закидывай в DaVinci Resolve или Premiere Pro.")
     else:
         await message.answer("😿 Не получилось сгенерировать LUT. Попробуй другое описание.")
+
+@dp.message(Command("lut"))
+async def cmd_lut(message: Message, state: FSMContext):
+    prompt_text = message.text.replace("/lut", "", 1).strip()
+    if prompt_text:
+        await generate_and_send_lut(message, prompt_text)
+    else:
+        await state.set_state(PhotoStates.waiting_for_lut_description)
+        await message.answer("🎨 Опиши, какой LUT ты хочешь (например: «тёплый кинематографический» или «холодный неоновый»). Я сгенерирую файл .cube.")
+
+@dp.message(PhotoStates.waiting_for_lut_description, F.text & ~F.text.startswith("/"))
+async def process_lut_description(message: Message, state: FSMContext):
+    prompt_text = message.text.strip()
+    await generate_and_send_lut(message, prompt_text)
+    await state.set_state(PhotoStates.waiting_for_photo)
 
 @dp.message(Command("remind"))
 async def cmd_remind(message: Message):
@@ -1060,10 +1071,13 @@ async def voice_handler(message: Message, state: FSMContext):
     user_stats[user]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с эмоциональным интеллектом ----------
+# ---------- Текстовый чат с эмоциональным интеллектом (добавлена проверка состояния LUT) ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
+    # Если ожидаем описание LUT, не обрабатываем здесь
+    if await state.get_state() == PhotoStates.waiting_for_lut_description:
+        return
     user_id = str(message.from_user.id)
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
@@ -1072,7 +1086,6 @@ async def smart_chat(message: Message, state: FSMContext):
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
 
-    # Проверка на "кто создатель"
     creator_keywords = [
         "кто твой создатель", "кто тебя создал", "кто тебя сделал",
         "кто твой автор", "кто тебя разработал", "чей ты проект",
@@ -1082,10 +1095,8 @@ async def smart_chat(message: Message, state: FSMContext):
         await message.answer(loc["creator_answer"])
         return
 
-    # Определяем настроение
     mood = detect_mood(message.text)
 
-    # Обработка специальных фраз
     if any(p in message.text.lower() for p in ["ты где", "где ты", "покажись"]):
         await message.answer(loc["where_are_you_reply"])
         return
