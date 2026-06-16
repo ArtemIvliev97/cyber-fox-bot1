@@ -4,3 +4,5 @@ fastapi==0.115.0
 uvicorn==0.30.0
 exifread
 Pillow
+torch
+silero-tts
