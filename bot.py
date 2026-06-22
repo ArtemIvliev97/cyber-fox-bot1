@@ -3,7 +3,6 @@ from collections import deque
 from contextlib import asynccontextmanager
 from io import BytesIO
 from datetime import datetime, timedelta
-from openai import AsyncOpenAI
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
@@ -23,7 +22,6 @@ from PIL import Image, ImageDraw, ImageFont
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -34,16 +32,6 @@ VOICE_ENABLED = os.getenv("VOICE_ENABLED", "True").lower() == "true"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ---------- DeepSeek клиент ----------
-deepseek = None
-if DEEPSEEK_API_KEY:
-    deepseek = AsyncOpenAI(
-        api_key=DEEPSEEK_API_KEY,
-        base_url="https://api.deepseek.com/v1",
-    )
-else:
-    logger.warning("DEEPSEEK_API_KEY not set – text features will be limited.")
 
 # ---------- Состояния ----------
 class PhotoStates(StatesGroup):
@@ -114,7 +102,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (игривая) ----------
+# ---------- Локализация ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -382,35 +370,69 @@ def make_collage(image_bytes_list: list) -> BytesIO:
     out.seek(0)
     return out
 
-# ---------- Запросы к DeepSeek ----------
-async def ask_deepseek(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
-    if not deepseek:
-        return "🦊 Мой текстовый модуль временно недоступен – проверьте ключ DeepSeek."
-    try:
-        response = await deepseek.chat.completions.create(
-            model="deepseek-chat-v4-flash",
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"DeepSeek error: {e}")
+# ---------- Запросы к YandexGPT ----------
+async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
+        "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                                 headers=headers, json=body, timeout=60.0)
+    if resp.status_code == 200:
+        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+    else:
+        logger.error(f"Yandex API error: {resp.status_code}")
         return "🦊 Что-то пошло не так с моими кибер‑лапками..."
 
 async def ask_ari(question: str) -> str:
     messages = [{"role": "system", "content": CHAT_PROMPT}, {"role": "user", "content": question}]
-    return await ask_deepseek(messages, max_tokens=500, temperature=0.8)
+    prompt = f"{CHAT_PROMPT}\n\nПользователь: {question}\nАри:"
+    # Для совместимости с текущим ask_yandex, который ожидает строку, мы объединим системный промпт и вопрос в один текст.
+    # Но YandexGPT умеет работать с сообщениями, поэтому лучше использовать массив messages.
+    # Перепишем ask_yandex, чтобы он принимал список сообщений.
+    # Пока для быстрого исправления просто передадим полный промпт одной строкой, но это менее гибко.
+    # Поэтому заменим ask_yandex на функцию, которая принимает messages.
+    pass  # Будет переписано ниже
+
+# Перепишем ask_yandex для работы с messages
+async def ask_yandex_messages(messages: list, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
+        "messages": messages
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                                 headers=headers, json=body, timeout=60.0)
+    if resp.status_code == 200:
+        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+    else:
+        logger.error(f"Yandex API error: {resp.status_code}")
+        return "🦊 Что-то пошло не так с моими кибер‑лапками..."
+
+async def ask_ari(question: str) -> str:
+    messages = [{"role": "system", "content": CHAT_PROMPT}, {"role": "user", "content": question}]
+    return await ask_yandex_messages(messages, max_tokens="500", temperature=0.8)
 
 async def ask_ari_with_context(user_id: str, question: str) -> str:
     history = list(user_context.get(user_id, []))
     messages = [{"role": "system", "content": CHAT_PROMPT}]
     for msg in history:
-        # Убедимся, что у каждого сообщения есть ключ "content"
         if "content" in msg:
             messages.append(msg)
     messages.append({"role": "user", "content": question})
-    return await ask_deepseek(messages, max_tokens=500, temperature=0.8)
+    return await ask_yandex_messages(messages, max_tokens="500", temperature=0.8)
+
+# Для анализа фото и пресетов оставим старый ask_yandex, принимающий строку, но теперь он будет вызывать ask_yandex_messages с одним сообщением.
+async def ask_yandex_single(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+    return await ask_yandex_messages(messages, max_tokens=max_tokens, temperature=temperature)
+
+# Далее используем ask_yandex_single для анализа и ask_ari / ask_ari_with_context для чата.
 
 # ---------- Генерация изображений (Yandex Art) ----------
 async def generate_image(prompt: str) -> bytes | None:
@@ -620,7 +642,7 @@ async def generate_and_send_lut(message: Message, description: str):
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": LOCALE["ru"]["lut_prompt"].format(description=description)}
     ]
-    response = await ask_deepseek(messages, max_tokens=1000, temperature=0.5)
+    response = await ask_yandex_messages(messages, max_tokens="1000", temperature=0.5)
     code_match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
     if code_match:
         lut_content = code_match.group(1).strip()
@@ -871,7 +893,7 @@ async def handle_reference_photo(message: Message, state: FSMContext):
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": LOCALE["ru"]["reference_prompt"]}
     ]
-    response = await ask_deepseek(messages, max_tokens=1500, temperature=0.6)
+    response = await ask_yandex_messages(messages, max_tokens="1500", temperature=0.6)
     xml_match = re.search(r"```xml\s*(.*?)\s*```", response, re.DOTALL)
     if xml_match:
         preset = BufferedInputFile(xml_match.group(1).encode(), filename="reference.xmp")
@@ -1031,8 +1053,7 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         if objects_str:
             vision_info = LOCALE["ru"]["vision_prompt"].format(objects=objects_str)
         prompt = (exif_info + "\n" + vision_info + "\n" + ANALYSIS_PROMPT) if exif_info or vision_info else ANALYSIS_PROMPT
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
-        analysis = await ask_deepseek(messages, max_tokens=2000, temperature=0.4)
+        analysis = await ask_yandex_single(prompt, max_tokens="2000", temperature=0.4)
         await message.answer(analysis)
         user = str(message.from_user.id)
         if user not in user_stats: user_stats[user] = {}
@@ -1106,7 +1127,7 @@ async def process_style_single(cb: CallbackQuery, state: FSMContext):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
         ]
-        ai_text = await ask_deepseek(messages, max_tokens=2000, temperature=0.6)
+        ai_text = await ask_yandex_messages(messages, max_tokens="2000", temperature=0.6)
         if GENERATION_LIMIT > 0: remaining_generations -= 1
         xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
         if xml_match:
@@ -1157,7 +1178,7 @@ async def process_album_style(cb: CallbackQuery, state: FSMContext):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
             ]
-            ai_text = await ask_deepseek(messages, max_tokens=1500, temperature=0.6)
+            ai_text = await ask_yandex_messages(messages, max_tokens="1500", temperature=0.6)
             xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
             if xml_match:
                 zf.writestr(f"preset_{i+1}_{chosen}.xmp", xml_match.group(1).strip())
@@ -1273,7 +1294,6 @@ async def smart_chat(message: Message, state: FSMContext):
 
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
-    # Исправлено: используем ключ "content" вместо "text"
     user_context[user_id].append({"role": "user", "content": message.text})
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -1302,7 +1322,6 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
-        # Исправлено: сохраняем ответ с ключом "content"
         user_context[user_id].append({"role": "assistant", "content": reply})
         name = mem.get("name")
         if name:
