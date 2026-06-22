@@ -114,7 +114,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (добавлены игривые вариации) ----------
+# ---------- Локализация (игривая) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -248,7 +248,6 @@ BASE_PROMPT = (
     "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
     "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
 )
-# Обновлённый чат-промпт: больше игривости, флирта, эмодзи, нешаблонность
 CHAT_PROMPT = (
     "Ты — Ари, дерзкая, остроумная кибер-лисичка с лёгкой распущенностью. Ты обожаешь флиртовать, шутить, иногда подкалывать, но всегда остаёшься профессионалом в фотографии. "
     "Отвечай как живой человек: с эмоциями, разговорными фразами, иронией, будто мы болтаем в уютном кафе. "
@@ -407,7 +406,9 @@ async def ask_ari_with_context(user_id: str, question: str) -> str:
     history = list(user_context.get(user_id, []))
     messages = [{"role": "system", "content": CHAT_PROMPT}]
     for msg in history:
-        messages.append(msg)
+        # Убедимся, что у каждого сообщения есть ключ "content"
+        if "content" in msg:
+            messages.append(msg)
     messages.append({"role": "user", "content": question})
     return await ask_deepseek(messages, max_tokens=500, temperature=0.8)
 
@@ -1272,7 +1273,8 @@ async def smart_chat(message: Message, state: FSMContext):
 
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
-    user_context[user_id].append({"role": "user", "text": message.text})
+    # Исправлено: используем ключ "content" вместо "text"
+    user_context[user_id].append({"role": "user", "content": message.text})
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
@@ -1300,7 +1302,8 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
-        user_context[user_id].append({"role": "assistant", "text": reply})
+        # Исправлено: сохраняем ответ с ключом "content"
+        user_context[user_id].append({"role": "assistant", "content": reply})
         name = mem.get("name")
         if name:
             reply = reply.replace("🦊", f"🦊 {name},")
@@ -1330,7 +1333,7 @@ async def smart_chat(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2))
     reply = await ask_ari_with_context(user_id, message.text)
-    user_context[user_id].append({"role": "assistant", "text": reply})
+    user_context[user_id].append({"role": "assistant", "content": reply})
     name = mem.get("name")
     if name:
         reply = reply.replace("🦊", f"🦊 {name},")
