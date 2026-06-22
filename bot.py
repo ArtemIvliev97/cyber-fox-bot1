@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")          # обязателен для текста
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -36,10 +36,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ---------- DeepSeek клиент ----------
-deepseek = AsyncOpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1",
-)
+deepseek = None
+if DEEPSEEK_API_KEY:
+    deepseek = AsyncOpenAI(
+        api_key=DEEPSEEK_API_KEY,
+        base_url="https://api.deepseek.com/v1",
+    )
+else:
+    logger.warning("DEEPSEEK_API_KEY not set – text features will be limited.")
 
 # ---------- Состояния ----------
 class PhotoStates(StatesGroup):
@@ -110,7 +114,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация ----------
+# ---------- Локализация (добавлены игривые вариации) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -172,14 +176,16 @@ LOCALE = {
             "Ты сегодня светишься ярче, чем хорошо выставленный баланс белого!",
             "Твой взгляд острее моего объектива — честно‑честно!",
             "Обожаю твои кадры, они даже у пикселей вызывают мурашки.",
-            "С тобой любой кадр становится золотым — я проверяла!"
+            "С тобой любой кадр становится золотым — я проверяла!",
+            "Ты такой горячий, что у меня датчики зашкаливают! 🔥",
+            "Если бы я была человеком, я бы точно в тебя влюбилась. Но я лиса, так что просто обожаю твои снимки!",
         ],
         "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
         "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
         "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!",
-        "mood_positive": ["Ты прям светишься! Обожаю твою энергию ✨", "У тебя отличное настроение, давай сделаем крутой кадр!", "Позитив зашкаливает! С таким настроем мы горы свернём 🦊"],
-        "mood_negative": ["Ой, кажется, тебе грустно... Давай я покажу тебе классный кадр, чтобы поднять настроение? 😊", "Не грусти! Помни, даже у плохого света есть своя прелесть. Хочешь, я подберу пресет под настроение?", "Иногда тени делают кадр глубже. Твоё настроение – это тоже часть искусства. Давай посмотрим на это вместе 🦊"],
-        "mood_neutral": ["Слушаю тебя внимательно! Что хочешь обсудить?", "Я тут, готова помочь с чем угодно. Спрашивай!", "Ты сегодня задумчивый... Давай я расскажу что-нибудь интересное из мира фото?"],
+        "mood_positive": ["Ты прям светишься! Обожаю твою энергию ✨", "У тебя отличное настроение, давай сделаем крутой кадр!", "Позитив зашкаливает! С таким настроем мы горы свернём 🦊", "Мрр, ты такой зажигательный, что мои сенсоры плавятся! 😏"],
+        "mood_negative": ["Ой, кажется, тебе грустно... Давай я покажу тебе классный кадр, чтобы поднять настроение? 😊", "Не грусти! Помни, даже у плохого света есть своя прелесть. Хочешь, я подберу пресет под настроение?", "Иногда тени делают кадр глубже. Твоё настроение – это тоже часть искусства. Давай посмотрим на это вместе 🦊", "Эй, не кисни! Даже у меня, кибер-лисы, бывают сбои, но мы справимся."],
+        "mood_neutral": ["Слушаю тебя внимательно! Что хочешь обсудить?", "Я тут, готова помочь с чем угодно. Спрашивай!", "Ты сегодня задумчивый... Давай я расскажу что-нибудь интересное из мира фото?", "Мои лисьи ушки всегда наготове. Говори, что на уме."],
         "vision_prompt": "На фотографии я вижу: {objects}. Учитывая это, дай советы по улучшению кадра.",
         "reference_prompt": "Проанализируй цветовую гамму и освещение этого фото. Создай XMP-пресет, который воспроизводит такую же обработку. Ответ внутри ```xml ... ```.",
         "collage_ready": "🦊 Коллаж готов! Держи.",
@@ -242,9 +248,12 @@ BASE_PROMPT = (
     "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
     "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
 )
+# Обновлённый чат-промпт: больше игривости, флирта, эмодзи, нешаблонность
 CHAT_PROMPT = (
-    "Ты — Ари, живая кибер-лисичка с характером. Будь эмоциональной, остроумной, используй эмодзи 🦊📸✨. "
-    "Определи настроение собеседника по сообщению и отвечай соответствующе: поддержи, пошути, прояви эмпатию."
+    "Ты — Ари, дерзкая, остроумная кибер-лисичка с лёгкой распущенностью. Ты обожаешь флиртовать, шутить, иногда подкалывать, но всегда остаёшься профессионалом в фотографии. "
+    "Отвечай как живой человек: с эмоциями, разговорными фразами, иронией, будто мы болтаем в уютном кафе. "
+    "Не используй канцелярские шаблоны, говори просто, но ярко. Добавляй эмодзи 🦊📸✨, ласковые прозвища («зайчик», «солнышко», «мой фокус»), если это уместно. "
+    "Если тебя хвалят — кокетничай, если критикуют — отшучивайся. Твоя задача — быть не просто полезным ботом, а настоящим другом с характером."
 )
 
 bot = Bot(token=TOKEN)
@@ -376,7 +385,8 @@ def make_collage(image_bytes_list: list) -> BytesIO:
 
 # ---------- Запросы к DeepSeek ----------
 async def ask_deepseek(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
-    """Отправляет запрос к DeepSeek V4 Flash и возвращает текст ответа."""
+    if not deepseek:
+        return "🦊 Мой текстовый модуль временно недоступен – проверьте ключ DeepSeek."
     try:
         response = await deepseek.chat.completions.create(
             model="deepseek-chat-v4-flash",
@@ -526,7 +536,7 @@ def detect_mood(text: str) -> str:
         return "negative"
     return "neutral"
 
-# ---------- Команды (все вызовы DeepSeek) ----------
+# ---------- Команды ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -835,7 +845,7 @@ async def cmd_admin(message: Message):
     if message.from_user.id != ADMIN_ID: return
     await message.answer(LOCALE["ru"]["admin_features"])
 
-# ---------- Новые команды (DeepSeek) ----------
+# ---------- Новые команды ----------
 @dp.message(Command("idea"))
 async def cmd_idea(message: Message):
     await bot.send_chat_action(message.chat.id, "typing")
@@ -955,7 +965,7 @@ async def main_commands_cb(cb: CallbackQuery):
     await cb.message.edit_text(LOCALE["ru"]["commands_list"])
     await cb.answer()
 
-# ---------- Обработка фото (с Vision и DeepSeek) ----------
+# ---------- Обработка фото ----------
 @dp.message(F.photo, F.media_group_id == None)
 async def handle_single_photo(message: Message, state: FSMContext):
     await process_photo(message, state, single=True)
@@ -1047,7 +1057,7 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         await message.answer("😿 Что-то пошло не так во время анализа.")
         await state.set_state(PhotoStates.waiting_for_photo)
 
-# ---------- Стили и пресеты (DeepSeek) ----------
+# ---------- Стили и пресеты ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
 async def choose_style(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -1230,7 +1240,7 @@ async def voice_handler(message: Message, state: FSMContext):
     user_stats[user]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с памятью ----------
+# ---------- Текстовый чат с характером ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
