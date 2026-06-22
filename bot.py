@@ -21,9 +21,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ---------- Переменные окружения ----------
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")          # для Vision, SpeechKit, генерации
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")      # для Vision, генерации
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")      # новый ключ
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")          # обязателен для текста
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -376,10 +376,10 @@ def make_collage(image_bytes_list: list) -> BytesIO:
 
 # ---------- Запросы к DeepSeek ----------
 async def ask_deepseek(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
-    """Отправляет запрос к DeepSeek и возвращает текст ответа."""
+    """Отправляет запрос к DeepSeek V4 Flash и возвращает текст ответа."""
     try:
         response = await deepseek.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-chat-v4-flash",
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
