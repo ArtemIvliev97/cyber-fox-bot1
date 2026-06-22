@@ -102,7 +102,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация ----------
+# ---------- Локализация (игривая) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
@@ -247,7 +247,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 all_users = set()
 
-# ---------- Клавиатуры ----------
+# ---------- Клавиатуры (без изменений) ----------
 def get_main_menu_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -370,69 +370,58 @@ def make_collage(image_bytes_list: list) -> BytesIO:
     out.seek(0)
     return out
 
-# ---------- Запросы к YandexGPT ----------
-async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
+# ---------- Запросы к YandexGPT (исправлено: ключ "text") ----------
+async def ask_yandex_messages(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
+    # YandexGPT ожидает ключ "text" вместо "content"
+    yandex_messages = []
+    for msg in messages:
+        yandex_msg = {"role": msg["role"]}
+        if "content" in msg:
+            yandex_msg["text"] = msg["content"]
+        elif "text" in msg:
+            yandex_msg["text"] = msg["text"]
+        yandex_messages.append(yandex_msg)
+
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
     body = {
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
-        "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
+        "completionOptions": {
+            "stream": False,
+            "temperature": temperature,
+            "maxTokens": str(max_tokens)   # Yandex требует строку
+        },
+        "messages": yandex_messages
     }
     async with httpx.AsyncClient() as client:
         resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
                                  headers=headers, json=body, timeout=60.0)
     if resp.status_code == 200:
-        return resp.json()["result"]["alternatives"][0]["message"]["text"]
+        data = resp.json()
+        return data["result"]["alternatives"][0]["message"]["text"]
     else:
-        logger.error(f"Yandex API error: {resp.status_code}")
+        logger.error(f"Yandex API error: {resp.status_code} {resp.text}")
         return "🦊 Что-то пошло не так с моими кибер‑лапками..."
 
 async def ask_ari(question: str) -> str:
-    messages = [{"role": "system", "content": CHAT_PROMPT}, {"role": "user", "content": question}]
-    prompt = f"{CHAT_PROMPT}\n\nПользователь: {question}\nАри:"
-    # Для совместимости с текущим ask_yandex, который ожидает строку, мы объединим системный промпт и вопрос в один текст.
-    # Но YandexGPT умеет работать с сообщениями, поэтому лучше использовать массив messages.
-    # Перепишем ask_yandex, чтобы он принимал список сообщений.
-    # Пока для быстрого исправления просто передадим полный промпт одной строкой, но это менее гибко.
-    # Поэтому заменим ask_yandex на функцию, которая принимает messages.
-    pass  # Будет переписано ниже
-
-# Перепишем ask_yandex для работы с messages
-async def ask_yandex_messages(messages: list, max_tokens: str = "2000", temperature: float = 0.6) -> str:
-    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
-    body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
-        "messages": messages
-    }
-    async with httpx.AsyncClient() as client:
-        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-                                 headers=headers, json=body, timeout=60.0)
-    if resp.status_code == 200:
-        return resp.json()["result"]["alternatives"][0]["message"]["text"]
-    else:
-        logger.error(f"Yandex API error: {resp.status_code}")
-        return "🦊 Что-то пошло не так с моими кибер‑лапками..."
-
-async def ask_ari(question: str) -> str:
-    messages = [{"role": "system", "content": CHAT_PROMPT}, {"role": "user", "content": question}]
-    return await ask_yandex_messages(messages, max_tokens="500", temperature=0.8)
+    messages = [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
+    return await ask_yandex_messages(messages, max_tokens=500, temperature=0.8)
 
 async def ask_ari_with_context(user_id: str, question: str) -> str:
     history = list(user_context.get(user_id, []))
-    messages = [{"role": "system", "content": CHAT_PROMPT}]
+    messages = [{"role": "system", "text": CHAT_PROMPT}]
     for msg in history:
+        # Yandex не принимает "content" – заменяем на "text" при добавлении в историю
         if "content" in msg:
+            messages.append({"role": msg["role"], "text": msg["content"]})
+        elif "text" in msg:
             messages.append(msg)
-    messages.append({"role": "user", "content": question})
-    return await ask_yandex_messages(messages, max_tokens="500", temperature=0.8)
+    messages.append({"role": "user", "text": question})
+    return await ask_yandex_messages(messages, max_tokens=500, temperature=0.8)
 
-# Для анализа фото и пресетов оставим старый ask_yandex, принимающий строку, но теперь он будет вызывать ask_yandex_messages с одним сообщением.
-async def ask_yandex_single(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+# Для одиночного промпта (анализ, пресеты) тоже используем text
+async def ask_yandex_single(prompt: str, max_tokens: int = 2000, temperature: float = 0.6) -> str:
+    messages = [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
     return await ask_yandex_messages(messages, max_tokens=max_tokens, temperature=temperature)
-
-# Далее используем ask_yandex_single для анализа и ask_ari / ask_ari_with_context для чата.
 
 # ---------- Генерация изображений (Yandex Art) ----------
 async def generate_image(prompt: str) -> bytes | None:
@@ -639,10 +628,10 @@ async def cmd_premium(message: Message):
 async def generate_and_send_lut(message: Message, description: str):
     await bot.send_chat_action(message.chat.id, "typing")
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": LOCALE["ru"]["lut_prompt"].format(description=description)}
+        {"role": "system", "text": SYSTEM_PROMPT},
+        {"role": "user", "text": LOCALE["ru"]["lut_prompt"].format(description=description)}
     ]
-    response = await ask_yandex_messages(messages, max_tokens="1000", temperature=0.5)
+    response = await ask_yandex_messages(messages, max_tokens=1000, temperature=0.5)
     code_match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
     if code_match:
         lut_content = code_match.group(1).strip()
@@ -890,10 +879,10 @@ async def handle_reference_photo(message: Message, state: FSMContext):
         resp = await client.get(download_url)
         image_bytes = resp.content
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": LOCALE["ru"]["reference_prompt"]}
+        {"role": "system", "text": SYSTEM_PROMPT},
+        {"role": "user", "text": LOCALE["ru"]["reference_prompt"]}
     ]
-    response = await ask_yandex_messages(messages, max_tokens="1500", temperature=0.6)
+    response = await ask_yandex_messages(messages, max_tokens=1500, temperature=0.6)
     xml_match = re.search(r"```xml\s*(.*?)\s*```", response, re.DOTALL)
     if xml_match:
         preset = BufferedInputFile(xml_match.group(1).encode(), filename="reference.xmp")
@@ -1053,7 +1042,7 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         if objects_str:
             vision_info = LOCALE["ru"]["vision_prompt"].format(objects=objects_str)
         prompt = (exif_info + "\n" + vision_info + "\n" + ANALYSIS_PROMPT) if exif_info or vision_info else ANALYSIS_PROMPT
-        analysis = await ask_yandex_single(prompt, max_tokens="2000", temperature=0.4)
+        analysis = await ask_yandex_single(prompt, max_tokens=2000, temperature=0.4)
         await message.answer(analysis)
         user = str(message.from_user.id)
         if user not in user_stats: user_stats[user] = {}
@@ -1124,10 +1113,10 @@ async def process_style_single(cb: CallbackQuery, state: FSMContext):
         return
     try:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
+            {"role": "system", "text": SYSTEM_PROMPT},
+            {"role": "user", "text": BASE_PROMPT.format(style_info=style_info)}
         ]
-        ai_text = await ask_yandex_messages(messages, max_tokens="2000", temperature=0.6)
+        ai_text = await ask_yandex_messages(messages, max_tokens=2000, temperature=0.6)
         if GENERATION_LIMIT > 0: remaining_generations -= 1
         xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
         if xml_match:
@@ -1175,10 +1164,10 @@ async def process_album_style(cb: CallbackQuery, state: FSMContext):
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, b64 in enumerate(album_b64):
             messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
+                {"role": "system", "text": SYSTEM_PROMPT},
+                {"role": "user", "text": BASE_PROMPT.format(style_info=style_info)}
             ]
-            ai_text = await ask_yandex_messages(messages, max_tokens="1500", temperature=0.6)
+            ai_text = await ask_yandex_messages(messages, max_tokens=1500, temperature=0.6)
             xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
             if xml_match:
                 zf.writestr(f"preset_{i+1}_{chosen}.xmp", xml_match.group(1).strip())
@@ -1294,7 +1283,8 @@ async def smart_chat(message: Message, state: FSMContext):
 
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
-    user_context[user_id].append({"role": "user", "content": message.text})
+    # Сохраняем в историю с ключом "text" для Yandex (но внутри кода мы всё равно преобразуем)
+    user_context[user_id].append({"role": "user", "text": message.text})
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
@@ -1322,7 +1312,7 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
-        user_context[user_id].append({"role": "assistant", "content": reply})
+        user_context[user_id].append({"role": "assistant", "text": reply})
         name = mem.get("name")
         if name:
             reply = reply.replace("🦊", f"🦊 {name},")
@@ -1352,7 +1342,7 @@ async def smart_chat(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2))
     reply = await ask_ari_with_context(user_id, message.text)
-    user_context[user_id].append({"role": "assistant", "content": reply})
+    user_context[user_id].append({"role": "assistant", "text": reply})
     name = mem.get("name")
     if name:
         reply = reply.replace("🦊", f"🦊 {name},")
