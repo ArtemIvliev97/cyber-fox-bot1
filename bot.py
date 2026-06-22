@@ -3,6 +3,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 from io import BytesIO
 from datetime import datetime, timedelta
+from openai import AsyncOpenAI
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
@@ -20,8 +21,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ---------- Переменные окружения ----------
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")          # для Vision, SpeechKit, генерации
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")      # для Vision, генерации
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")      # новый ключ
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://your-service.onrender.com")
 WEBHOOK_PATH = "/webhook"
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -32,6 +34,12 @@ VOICE_ENABLED = os.getenv("VOICE_ENABLED", "True").lower() == "true"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ---------- DeepSeek клиент ----------
+deepseek = AsyncOpenAI(
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com/v1",
+)
 
 # ---------- Состояния ----------
 class PhotoStates(StatesGroup):
@@ -366,55 +374,34 @@ def make_collage(image_bytes_list: list) -> BytesIO:
     out.seek(0)
     return out
 
-# ---------- Запросы к Yandex ----------
-async def ask_yandex(prompt: str, max_tokens: str = "2000", temperature: float = 0.6) -> str:
-    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
-    body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
-        "messages": [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
-    }
-    async with httpx.AsyncClient() as client:
-        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=60.0)
-    if resp.status_code == 200:
-        return resp.json()["result"]["alternatives"][0]["message"]["text"]
-    else:
-        logger.error(f"Yandex API error: {resp.status_code}")
+# ---------- Запросы к DeepSeek ----------
+async def ask_deepseek(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
+    """Отправляет запрос к DeepSeek и возвращает текст ответа."""
+    try:
+        response = await deepseek.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"DeepSeek error: {e}")
         return "🦊 Что-то пошло не так с моими кибер‑лапками..."
 
 async def ask_ari(question: str) -> str:
-    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
-    body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
-        "messages": [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
-    }
-    async with httpx.AsyncClient() as client:
-        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
-    if resp.status_code == 200:
-        return resp.json()["result"]["alternatives"][0]["message"]["text"]
-    else:
-        return "🦊 Что-то я запуталась..."
+    messages = [{"role": "system", "content": CHAT_PROMPT}, {"role": "user", "content": question}]
+    return await ask_deepseek(messages, max_tokens=500, temperature=0.8)
 
 async def ask_ari_with_context(user_id: str, question: str) -> str:
     history = list(user_context.get(user_id, []))
-    messages = [{"role": "system", "text": CHAT_PROMPT}]
+    messages = [{"role": "system", "content": CHAT_PROMPT}]
     for msg in history:
         messages.append(msg)
-    messages.append({"role": "user", "text": question})
-    headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
-    body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "500"},
-        "messages": messages
-    }
-    async with httpx.AsyncClient() as client:
-        resp = await client.post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion", headers=headers, json=body, timeout=30.0)
-    if resp.status_code == 200:
-        return resp.json()["result"]["alternatives"][0]["message"]["text"]
-    else:
-        return "🦊 Что-то я запуталась..."
+    messages.append({"role": "user", "content": question})
+    return await ask_deepseek(messages, max_tokens=500, temperature=0.8)
 
+# ---------- Генерация изображений (Yandex Art) ----------
 async def generate_image(prompt: str) -> bytes | None:
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/imageGenerationAsync"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"}
@@ -441,6 +428,7 @@ async def generate_image(prompt: str) -> bytes | None:
                 else:
                     return None
 
+# ---------- Распознавание речи (Yandex STT) ----------
 async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
     url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
     headers = {"Authorization": f"Api-Key {YANDEX_API_KEY}"}
@@ -453,6 +441,7 @@ async def recognize_speech(audio_bytes: bytes, lang: str = "ru-RU") -> str:
         logger.error(f"STT error: {resp.status_code}")
         return ""
 
+# ---------- Синтез речи (Yandex TTS) ----------
 def fix_ari_pronunciation(text: str) -> str:
     return re.sub(r'\bАри\b', 'А+ри', text)
 
@@ -537,7 +526,7 @@ def detect_mood(text: str) -> str:
         return "negative"
     return "neutral"
 
-# ---------- Команды ----------
+# ---------- Команды (все вызовы DeepSeek) ----------
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
@@ -616,8 +605,11 @@ async def cmd_premium(message: Message):
 
 async def generate_and_send_lut(message: Message, description: str):
     await bot.send_chat_action(message.chat.id, "typing")
-    full_prompt = LOCALE["ru"]["lut_prompt"].format(description=description)
-    response = await ask_yandex(full_prompt, max_tokens="1000", temperature=0.5)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": LOCALE["ru"]["lut_prompt"].format(description=description)}
+    ]
+    response = await ask_deepseek(messages, max_tokens=1000, temperature=0.5)
     code_match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
     if code_match:
         lut_content = code_match.group(1).strip()
@@ -843,7 +835,7 @@ async def cmd_admin(message: Message):
     if message.from_user.id != ADMIN_ID: return
     await message.answer(LOCALE["ru"]["admin_features"])
 
-# ---------- Новые команды ----------
+# ---------- Новые команды (DeepSeek) ----------
 @dp.message(Command("idea"))
 async def cmd_idea(message: Message):
     await bot.send_chat_action(message.chat.id, "typing")
@@ -864,9 +856,11 @@ async def handle_reference_photo(message: Message, state: FSMContext):
     async with httpx.AsyncClient() as client:
         resp = await client.get(download_url)
         image_bytes = resp.content
-    b64 = base64.b64encode(image_bytes).decode()
-    prompt = LOCALE["ru"]["reference_prompt"]
-    response = await ask_yandex(prompt, max_tokens="1500", temperature=0.6)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": LOCALE["ru"]["reference_prompt"]}
+    ]
+    response = await ask_deepseek(messages, max_tokens=1500, temperature=0.6)
     xml_match = re.search(r"```xml\s*(.*?)\s*```", response, re.DOTALL)
     if xml_match:
         preset = BufferedInputFile(xml_match.group(1).encode(), filename="reference.xmp")
@@ -961,12 +955,11 @@ async def main_commands_cb(cb: CallbackQuery):
     await cb.message.edit_text(LOCALE["ru"]["commands_list"])
     await cb.answer()
 
-# ---------- Обработка одиночного фото ----------
+# ---------- Обработка фото (с Vision и DeepSeek) ----------
 @dp.message(F.photo, F.media_group_id == None)
 async def handle_single_photo(message: Message, state: FSMContext):
     await process_photo(message, state, single=True)
 
-# ---------- Обработка альбома ----------
 album_buffer = {}
 
 @dp.message(F.media_group_id)
@@ -1022,13 +1015,13 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
                 if 'EXIF FocalLength' in tags: parts.append(f"Фокусное: {tags['EXIF FocalLength']} мм")
                 if parts: exif_info = "Реальные параметры съёмки: " + "; ".join(parts) + "."
         except: pass
-        # Распознавание объектов
         objects_str = await analyze_objects(b64_img)
         vision_info = ""
         if objects_str:
             vision_info = LOCALE["ru"]["vision_prompt"].format(objects=objects_str)
         prompt = (exif_info + "\n" + vision_info + "\n" + ANALYSIS_PROMPT) if exif_info or vision_info else ANALYSIS_PROMPT
-        analysis = await ask_yandex(prompt, max_tokens="2000", temperature=0.4)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
+        analysis = await ask_deepseek(messages, max_tokens=2000, temperature=0.4)
         await message.answer(analysis)
         user = str(message.from_user.id)
         if user not in user_stats: user_stats[user] = {}
@@ -1054,7 +1047,7 @@ async def process_photo(message: Message, state: FSMContext, single: bool = True
         await message.answer("😿 Что-то пошло не так во время анализа.")
         await state.set_state(PhotoStates.waiting_for_photo)
 
-# ---------- Стили и пресеты ----------
+# ---------- Стили и пресеты (DeepSeek) ----------
 @dp.callback_query(PhotoStates.waiting_for_style, F.data == "choose_style")
 async def choose_style(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -1098,8 +1091,11 @@ async def process_style_single(cb: CallbackQuery, state: FSMContext):
         await state.set_state(PhotoStates.waiting_for_photo)
         return
     try:
-        prompt = BASE_PROMPT.format(style_info=style_info)
-        ai_text = await ask_yandex(prompt, max_tokens="2000", temperature=0.6)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
+        ]
+        ai_text = await ask_deepseek(messages, max_tokens=2000, temperature=0.6)
         if GENERATION_LIMIT > 0: remaining_generations -= 1
         xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
         if xml_match:
@@ -1146,8 +1142,11 @@ async def process_album_style(cb: CallbackQuery, state: FSMContext):
     zip_buf = BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, b64 in enumerate(album_b64):
-            prompt = BASE_PROMPT.format(style_info=style_info)
-            ai_text = await ask_yandex(prompt, max_tokens="1500", temperature=0.6)
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": BASE_PROMPT.format(style_info=style_info)}
+            ]
+            ai_text = await ask_deepseek(messages, max_tokens=1500, temperature=0.6)
             xml_match = re.search(r"```xml\s*(.*?)\s*```", ai_text, re.DOTALL)
             if xml_match:
                 zf.writestr(f"preset_{i+1}_{chosen}.xmp", xml_match.group(1).strip())
@@ -1188,7 +1187,7 @@ async def process_qa(cb: CallbackQuery, state: FSMContext):
         await cb.message.answer(loc["qa_choose"], reply_markup=get_qa_keyboard(lang))
     await cb.answer()
 
-# ---------- Голосовые сообщения (с управлением) ----------
+# ---------- Голосовые сообщения ----------
 @dp.message(F.voice)
 async def voice_handler(message: Message, state: FSMContext):
     if not CHAT_ENABLED or not VOICE_ENABLED: return
@@ -1207,7 +1206,6 @@ async def voice_handler(message: Message, state: FSMContext):
     if not text:
         await message.answer(loc["voice_unrecognized"])
         return
-    # Проверка на голосовые правки
     edit_keywords = ["сделай теплее", "сделай холоднее", "добавь контраст", "убавь яркость", "сделай ярче"]
     if any(word in text.lower() for word in edit_keywords):
         user_id = str(message.from_user.id)
@@ -1242,7 +1240,6 @@ async def smart_chat(message: Message, state: FSMContext):
     if user_id not in user_memory:
         user_memory[user_id] = {}
     mem = user_memory[user_id]
-    # Проверка на запоминание имени
     if "меня зовут" in message.text.lower() or "моё имя" in message.text.lower():
         name_match = re.search(r"зовут (\w+)", message.text, re.IGNORECASE)
         if not name_match:
@@ -1253,7 +1250,6 @@ async def smart_chat(message: Message, state: FSMContext):
             save_memory()
             await message.answer(f"🦊 Приятно познакомиться, {name}! Я запомнила.")
             return
-    # Запоминание любимого стиля
     if "мой любимый стиль" in message.text.lower() or "люблю стиль" in message.text.lower():
         for style_id, desc in FILM_PROMPTS.items():
             if desc.split()[0].lower() in message.text.lower():
