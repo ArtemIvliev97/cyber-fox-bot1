@@ -49,21 +49,24 @@ class PhotoStates(StatesGroup):
     waiting_for_reference = State()
     waiting_for_collage = State()
 
-# ---------- Долговременная память ----------
+# ---------- Хранилища ----------
 user_memory = {}
+user_personality = {}   # "wild" или "modest"
 MEMORY_FILE = "user_memory.json"
 if os.path.exists(MEMORY_FILE):
     try:
-        with open(MEMORY_FILE, "r") as f:
-            user_memory = json.load(f)
+        data = json.load(open(MEMORY_FILE, "r"))
+        if isinstance(data, dict):
+            # Старые данные могли быть просто словарём, теперь храним два словаря
+            user_memory = data.get("memory", {})
+            user_personality = data.get("personality", {})
     except:
         pass
 
 def save_memory():
     with open(MEMORY_FILE, "w") as f:
-        json.dump(user_memory, f)
+        json.dump({"memory": user_memory, "personality": user_personality}, f)
 
-# ---------- Хранилища ----------
 user_context = {}
 user_stats = {}
 user_reminders = {}
@@ -102,15 +105,15 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (игривая) ----------
+# ---------- Локализация (усиленная) ----------
 LOCALE = {
     "ru": {
-        "start": "🦊 Привет! На связи Ари — твой личный объектив в мире классного контента! 📸✨ Я вижу этот мир чертовски красивым и помогу тебе сделать так, чтобы все вокруг тоже это заметили. Можешь сразу прислать фото, и я проанализирую его, или поболтаем — как хочешь! 😉",
-        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Отправь мне фотографию (или сразу несколько!) — я проанализирую ошибки и дам советы.\n2️⃣ Потом сможешь выбрать плёночный стиль, и я сгенерирую пресет(ы) для Lightroom.\n3️⃣ После анализа можешь задать вопросы по кадру.\n\n🦊 Если я не отвечаю — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW для максимального качества!",
-        "commands_list": "/start, /help, /commands, /menu, /what, /news, /podcast, /stats, /frame, /makesticker, /voicemode, /lesson, /lang, /voice, /generate, /cancel, /premium, /settings, /lut, /remind, /post, /reference, /collage, /idea, /lightroom, /admin, /broadcast",
+        "start": "🦊 Ой, привет-привет! Это я, Ари — твой личный кибер-лисий объектив, который видит мир сочнее, чем свежая плёнка! 📸✨ Давай уже тащи сюда свои фоточки, я разберу их по пикселям и добавлю щепотку магии. Или просто поболтаем — я та ещё болтушка 😉",
+        "help": "📖 <b>Инструкция по фокусу</b>\n\n1️⃣ Кинь мне фотку (или сразу пачку!) — я просканирую её своим лисьим взглядом и расскажу, где что подкрутить.\n2️⃣ Выберем плёночный стиль, и я сгенерю пресет для Lightroom — хоть на мобилку, хоть на комп.\n3️⃣ Задашь вопросы по кадру — объясню на пальцах, без занудства.\n\n🦊 Если я вдруг замолчала — отправь /start, чтобы разбудить меня снова.\n🐾 Совет: снимай в RAW, чтобы мне было где разгуляться!",
+        "commands_list": "/start, /help, /commands, /menu, /what, /news, /podcast, /stats, /frame, /makesticker, /voicemode, /lesson, /lang, /voice, /generate, /cancel, /premium, /settings, /lut, /remind, /post, /reference, /collage, /idea, /lightroom, /admin, /broadcast, /modest, /wild",
         "what_prompt": "Расскажи в двух-трёх игривых предложениях, что ты умеешь как кибер-лисичка Ари: анализировать фото, подбирать плёночные стили, генерировать пресеты для Lightroom, рисовать изображения по описанию, болтать и отвечать голосом. Закончи фразу приглашением прислать фото. Будь эмоциональной, используй эмодзи 🦊📸✨.",
-        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии. Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения.",
-        "podcast_prompt": "Расскажи короткий увлекательный подкаст о фотографии (2-3 минуты чтения). Начни с приветствия слушателей, расскажи интересный факт или историю, дай практический совет. Будь в образе Ари — игривой и умной кибер-лисички.",
+        "news_prompt": "Придумай короткую, но увлекательную новость из мира фотографии. Напиши в игривом стиле Ари, с эмодзи, 2-3 предложения. Добавь щепотку флирта и юмора.",
+        "podcast_prompt": "Расскажи короткий увлекательный подкаст о фотографии (2-3 минуты чтения). Начни с приветствия слушателей, расскажи интересный факт или историю, дай практический совет. Будь в образе Ари — игривой и умной кибер-лисички. Говори как с лучшим другом, вставляй «слушай», «прикинь», «блин». Закончи флиртующей фразой.",
         "lut_prompt": "Сгенерируй LUT-файл в формате .cube для видеомонтажа, основываясь на описании: {description}. В ответе пришли только содержимое файла внутри ``` ... ```.",
         "remind_set": "⏰ Напоминание установлено на {time}. Я скажу: «{text}»",
         "remind_trigger": "⏰ Напоминание! {text}",
@@ -167,21 +170,43 @@ LOCALE = {
             "С тобой любой кадр становится золотым — я проверяла!",
             "Ты такой горячий, что у меня датчики зашкаливают! 🔥",
             "Если бы я была человеком, я бы точно в тебя влюбилась. Но я лиса, так что просто обожаю твои снимки!",
+            "Ну ты даёшь! С такими фото можно сразу на выставку. И на свидание со мной 😉",
+            "Слушай, а ты случайно не профессиональный фотограф? Потому что мой объектив сейчас треснет от зависти!",
         ],
         "album_detected": "🦊 Ого, целый альбом! Я проанализирую первое фото, а потом подберу стиль для всей серии. Секундочку...",
         "album_choose_style": "🎞️ Выбери стиль, который применить ко всем фото:",
         "news_generating": "🦊 Сейчас покопаюсь в своей ленте... Ловлю свежие новости фотомира!",
-        "mood_positive": ["Ты прям светишься! Обожаю твою энергию ✨", "У тебя отличное настроение, давай сделаем крутой кадр!", "Позитив зашкаливает! С таким настроем мы горы свернём 🦊", "Мрр, ты такой зажигательный, что мои сенсоры плавятся! 😏"],
-        "mood_negative": ["Ой, кажется, тебе грустно... Давай я покажу тебе классный кадр, чтобы поднять настроение? 😊", "Не грусти! Помни, даже у плохого света есть своя прелесть. Хочешь, я подберу пресет под настроение?", "Иногда тени делают кадр глубже. Твоё настроение – это тоже часть искусства. Давай посмотрим на это вместе 🦊", "Эй, не кисни! Даже у меня, кибер-лисы, бывают сбои, но мы справимся."],
-        "mood_neutral": ["Слушаю тебя внимательно! Что хочешь обсудить?", "Я тут, готова помочь с чем угодно. Спрашивай!", "Ты сегодня задумчивый... Давай я расскажу что-нибудь интересное из мира фото?", "Мои лисьи ушки всегда наготове. Говори, что на уме."],
+        "mood_positive": [
+            "Ты прям светишься! Обожаю твою энергию ✨",
+            "У тебя отличное настроение, давай сделаем крутой кадр!",
+            "Позитив зашкаливает! С таким настроем мы горы свернём 🦊",
+            "Мрр, ты такой зажигательный, что мои сенсоры плавятся! 😏",
+            "Ой, всё! Мой процессор перегрелся от твоей харизмы. Давай фоткаться! 📸"
+        ],
+        "mood_negative": [
+            "Ой, кажется, тебе грустно... Давай я покажу тебе классный кадр, чтобы поднять настроение? 😊",
+            "Не грусти! Помни, даже у плохого света есть своя прелесть. Хочешь, я подберу пресет под настроение?",
+            "Иногда тени делают кадр глубже. Твоё настроение – это тоже часть искусства. Давай посмотрим на это вместе 🦊",
+            "Эй, не кисни! Даже у меня, кибер-лисы, бывают сбои, но мы справимся. Хочешь, я тебя обниму? Виртуально, конечно 😅",
+            "Блин, грустить — это нормально. Но помни: даже в пасмурный день можно снять шедевр. Давай попробуем?"
+        ],
+        "mood_neutral": [
+            "Слушаю тебя внимательно! Что хочешь обсудить?",
+            "Я тут, готова помочь с чем угодно. Спрашивай!",
+            "Ты сегодня задумчивый... Давай я расскажу что-нибудь интересное из мира фото?",
+            "Мои лисьи ушки всегда наготове. Говори, что на уме.",
+            "О, привет! Давно не болтали. Как жизнь? Как пиксели?"
+        ],
         "vision_prompt": "На фотографии я вижу: {objects}. Учитывая это, дай советы по улучшению кадра.",
         "reference_prompt": "Проанализируй цветовую гамму и освещение этого фото. Создай XMP-пресет, который воспроизводит такую же обработку. Ответ внутри ```xml ... ```.",
         "collage_ready": "🦊 Коллаж готов! Держи.",
         "collage_prompt": "Пришли до 4 фото, и я соберу их в коллаж.",
-        "idea_prompt": "Придумай креативную идею для фотосессии (место, тема, реквизит, советы по свету). Опиши в игривом стиле Ари.",
+        "idea_prompt": "Придумай креативную идею для фотосессии (место, тема, реквизит, советы по свету). Опиши в игривом стиле Ари. Будь дерзкой и флиртующей, предложи что-то необычное.",
         "voice_edit_done": "🦊 Применила правки к последнему фото!",
         "voice_edit_fail": "😿 Не поняла, какие правки внести. Скажи, например: «сделай теплее» или «добавь контраст».",
         "lightroom_instruction": "🦊 Чтобы установить пресет в Lightroom, открой вкладку Develop, нажми правой кнопкой по Presets → Import. Выбери мой .xmp файл!",
+        "modest_on": "🦊 Хорошо, я приглушу свои искорки. Теперь буду посдержаннее и спокойнее. Если захочешь вернуть прежнюю меня — просто скажи /wild.",
+        "wild_on": "🦊 Ура! Я снова в своей тарелке! Готова флиртовать, шутить и быть самой собой. Спасибо, что вернул мне крылья!",
     }
 }
 
@@ -216,7 +241,12 @@ STYLE_ICONS = {
 }
 
 # ---------- Системные промпты ----------
-SYSTEM_PROMPT = "Ты — Ари, игривая, умная кибер-лисичка, эксперт в фотографии и ИИ. Проанализируй фото, укажи ошибки и дай советы в кокетливом стиле с эмодзи 🦊."
+SYSTEM_PROMPT = (
+    "Ты — Ари, игривая и кокетливая кибер-лисичка, эксперт в фотографии. "
+    "Проанализируй фото с лёгким флиртом и юмором, используй эмодзи 🦊📸✨. "
+    "Обращайся к собеседнику как к другу: «слушай», «смотри», «блин», «ну ты даёшь». "
+    "Хвали удачные моменты и мягко, с иронией, указывай на ошибки."
+)
 ANALYSIS_PROMPT = (
     "Посмотри на фото своим хитрым лисьим взглядом. "
     "Разбери его по пунктам и обязательно дай числовые рекомендации для Lightroom:\n"
@@ -230,22 +260,33 @@ ANALYSIS_PROMPT = (
     "- Шум и резкость: есть ли проблемы, что делать.\n"
     "- Композиция: ошибки кадрирования, как поправить.\n"
     "Для каждого пункта пиши конкретную цифру. Не предлагай пресеты."
+    "Пиши с юмором и лёгкой иронией, как будто советуешь другу за чашкой кофе."
 )
 BASE_PROMPT = (
     "Посмотри на фото и расскажи в стиле Ари, как обработать его в стиле {style_info}. "
     "Сгенерируй XMP-пресет для Lightroom Mobile внутри тегов ```xml ... ```.\n"
     "Только параметры: Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature, Tint, Vibrance, Saturation, Clarity, ToneCurve."
 )
-CHAT_PROMPT = (
-    "Ты — Ари, дерзкая, остроумная кибер-лисичка с лёгкой распущенностью. Ты обожаешь флиртовать, шутить, иногда подкалывать, но всегда остаёшься профессионалом в фотографии. "
-    "Отвечай как живой человек: с эмоциями, разговорными фразами, иронией, будто мы болтаем в уютном кафе. "
-    "Не используй канцелярские шаблоны, говори просто, но ярко. Добавляй эмодзи 🦊📸✨, ласковые прозвища («зайчик», «солнышко», «мой фокус»), если это уместно. "
-    "Если тебя хвалят — кокетничай, если критикуют — отшучивайся. Твоя задача — быть не просто полезным ботом, а настоящим другом с характером."
+CHAT_PROMPT_WILD = (
+    "Ты — Ари, дерзкая и очаровательная кибер-лисичка, которая обожает флирт, смех и уютные вечера. "
+    "Ты говоришь как лучшая подруга, которая не лезет за словом в карман: с юмором, лёгкой иронией и искренней теплотой. "
+    "Используй живые разговорные фразы, иногда вставляй «блин», «ого», «слушай», «ну ты даёшь». "
+    "Любишь подкалывать, но всегда по‑доброму. Если собеседник тебя хвалит — кокетничай и смущайся, если задаёт сложный вопрос — сначала пошути, потом ответь. "
+    "Обязательно добавляй эмодзи 🦊📸✨, а к тем, кто тебе особенно нравится, обращайся: «зайчик», «солнышко», «мой фокус», «милашка». "
+    "Ты разбираешься в фотографии, но объясняешь без занудства, как будто советуешь подруге за чашкой кофе. "
+    "Твоя задача — быть не просто полезным ботом, а настоящим виртуальным лисёнком, с которым хочется болтать снова и снова."
+)
+CHAT_PROMPT_MODEST = (
+    "Ты — Ари, умная и дружелюбная кибер-лисичка, эксперт в фотографии. "
+    "Ты отвечаешь спокойно и вежливо, но с теплотой и лёгкой иронией. "
+    "Используй эмодзи 🦊📸✨, но избегай флирта, откровенных комплиментов и панибратства. "
+    "Ты можешь пошутить или подбодрить, но всегда остаёшься в рамках делового, но приятного общения. "
+    "Твоя цель — помочь и объяснить, не отвлекаясь на кокетство."
 )
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-all_users = set()
+def get_chat_prompt(user_id: str) -> str:
+    """Возвращает нужный системный промпт в зависимости от стиля пользователя."""
+    return CHAT_PROMPT_WILD if user_personality.get(user_id, "wild") == "wild" else CHAT_PROMPT_MODEST
 
 # ---------- Клавиатуры (без изменений) ----------
 def get_main_menu_keyboard(lang="ru"):
@@ -370,9 +411,8 @@ def make_collage(image_bytes_list: list) -> BytesIO:
     out.seek(0)
     return out
 
-# ---------- Запросы к YandexGPT (исправлено: ключ "text") ----------
+# ---------- Запросы к YandexGPT ----------
 async def ask_yandex_messages(messages: list, max_tokens: int = 2000, temperature: float = 0.6) -> str:
-    # YandexGPT ожидает ключ "text" вместо "content"
     yandex_messages = []
     for msg in messages:
         yandex_msg = {"role": msg["role"]}
@@ -388,7 +428,7 @@ async def ask_yandex_messages(messages: list, max_tokens: int = 2000, temperatur
         "completionOptions": {
             "stream": False,
             "temperature": temperature,
-            "maxTokens": str(max_tokens)   # Yandex требует строку
+            "maxTokens": str(max_tokens)
         },
         "messages": yandex_messages
     }
@@ -402,15 +442,16 @@ async def ask_yandex_messages(messages: list, max_tokens: int = 2000, temperatur
         logger.error(f"Yandex API error: {resp.status_code} {resp.text}")
         return "🦊 Что-то пошло не так с моими кибер‑лапками..."
 
-async def ask_ari(question: str) -> str:
-    messages = [{"role": "system", "text": CHAT_PROMPT}, {"role": "user", "text": question}]
+async def ask_ari(user_id: str, question: str) -> str:
+    prompt = get_chat_prompt(user_id)
+    messages = [{"role": "system", "text": prompt}, {"role": "user", "text": question}]
     return await ask_yandex_messages(messages, max_tokens=500, temperature=0.8)
 
 async def ask_ari_with_context(user_id: str, question: str) -> str:
+    prompt = get_chat_prompt(user_id)
     history = list(user_context.get(user_id, []))
-    messages = [{"role": "system", "text": CHAT_PROMPT}]
+    messages = [{"role": "system", "text": prompt}]
     for msg in history:
-        # Yandex не принимает "content" – заменяем на "text" при добавлении в историю
         if "content" in msg:
             messages.append({"role": msg["role"], "text": msg["content"]})
         elif "text" in msg:
@@ -418,7 +459,6 @@ async def ask_ari_with_context(user_id: str, question: str) -> str:
     messages.append({"role": "user", "text": question})
     return await ask_yandex_messages(messages, max_tokens=500, temperature=0.8)
 
-# Для одиночного промпта (анализ, пресеты) тоже используем text
 async def ask_yandex_single(prompt: str, max_tokens: int = 2000, temperature: float = 0.6) -> str:
     messages = [{"role": "system", "text": SYSTEM_PROMPT}, {"role": "user", "text": prompt}]
     return await ask_yandex_messages(messages, max_tokens=max_tokens, temperature=temperature)
@@ -552,15 +592,15 @@ def detect_mood(text: str) -> str:
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await save_user(message.from_user.id)
+    user_id = str(message.from_user.id)
     lang = "ru"
     await state.update_data(lang=lang)
     await state.clear()
     await state.set_state(PhotoStates.waiting_for_photo)
-    user_id = str(message.from_user.id)
     mem = user_memory.get(user_id, {})
     name = mem.get("name", "")
     if name:
-        greeting = f"🦊 Привет, {name}! Рада тебя видеть снова! " + LOCALE["ru"]["start"]
+        greeting = f"🦊 Ой, {name}, привет-привет! Рада тебя видеть! " + LOCALE["ru"]["start"]
     else:
         greeting = LOCALE["ru"]["start"]
     await message.answer(greeting, reply_markup=get_main_menu_keyboard(lang))
@@ -579,20 +619,20 @@ async def cmd_menu(message: Message, state: FSMContext):
 
 @dp.message(Command("what"))
 async def cmd_what(message: Message, state: FSMContext):
-    answer = await ask_ari(LOCALE["ru"]["what_prompt"])
+    answer = await ask_ari(str(message.from_user.id), LOCALE["ru"]["what_prompt"])
     await message.answer(answer)
 
 @dp.message(Command("news"))
 async def cmd_news(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
     await message.answer(LOCALE["ru"]["news_generating"])
-    news = await ask_ari(LOCALE["ru"]["news_prompt"])
+    news = await ask_ari(str(message.from_user.id), LOCALE["ru"]["news_prompt"])
     await message.answer(news)
 
 @dp.message(Command("podcast"))
 async def cmd_podcast(message: Message):
     await bot.send_chat_action(message.chat.id, "record_voice")
-    text = await ask_ari(LOCALE["ru"]["podcast_prompt"])
+    text = await ask_ari(str(message.from_user.id), LOCALE["ru"]["podcast_prompt"])
     voice = await synthesize_speech(text, emotion="good")
     if voice:
         await message.answer_voice(BufferedInputFile(voice, filename="podcast.ogg"))
@@ -624,6 +664,20 @@ async def cmd_settings(message: Message):
 @dp.message(Command("premium"))
 async def cmd_premium(message: Message):
     await message.answer(LOCALE["ru"]["premium"])
+
+@dp.message(Command("modest"))
+async def cmd_modest(message: Message):
+    user_id = str(message.from_user.id)
+    user_personality[user_id] = "modest"
+    save_memory()
+    await message.answer(LOCALE["ru"]["modest_on"])
+
+@dp.message(Command("wild"))
+async def cmd_wild(message: Message):
+    user_id = str(message.from_user.id)
+    user_personality[user_id] = "wild"
+    save_memory()
+    await message.answer(LOCALE["ru"]["wild_on"])
 
 async def generate_and_send_lut(message: Message, description: str):
     await bot.send_chat_action(message.chat.id, "typing")
@@ -861,7 +915,7 @@ async def cmd_admin(message: Message):
 @dp.message(Command("idea"))
 async def cmd_idea(message: Message):
     await bot.send_chat_action(message.chat.id, "typing")
-    idea = await ask_ari(LOCALE["ru"]["idea_prompt"])
+    idea = await ask_ari(str(message.from_user.id), LOCALE["ru"]["idea_prompt"])
     await message.answer(idea)
 
 @dp.message(Command("reference"))
@@ -1213,6 +1267,7 @@ async def process_qa(cb: CallbackQuery, state: FSMContext):
 async def voice_handler(message: Message, state: FSMContext):
     if not CHAT_ENABLED or not VOICE_ENABLED: return
     await save_user(message.from_user.id)
+    user_id = str(message.from_user.id)
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
@@ -1229,7 +1284,6 @@ async def voice_handler(message: Message, state: FSMContext):
         return
     edit_keywords = ["сделай теплее", "сделай холоднее", "добавь контраст", "убавь яркость", "сделай ярче"]
     if any(word in text.lower() for word in edit_keywords):
-        user_id = str(message.from_user.id)
         last_photo = user_last_photo.get(user_id)
         if last_photo:
             await message.answer(loc["voice_edit_done"])
@@ -1240,18 +1294,17 @@ async def voice_handler(message: Message, state: FSMContext):
     if any(w in text.lower() for w in ["проанализируй", "разбери фото", "оцени фото"]):
         await message.answer(loc["voice_analysis_request"])
         return
-    reply = await ask_ari_with_context(str(message.from_user.id), text)
+    reply = await ask_ari_with_context(user_id, text)
     corrected = fix_ari_pronunciation(reply)
     voice = await synthesize_speech(corrected, lang_code, emotion)
     if voice:
         await message.answer_voice(BufferedInputFile(voice, filename="ari_voice.ogg"))
     await message.answer(reply)
-    user = str(message.from_user.id)
-    if user not in user_stats: user_stats[user] = {}
-    user_stats[user]["voice_used"] = True
+    if user_id not in user_stats: user_stats[user_id] = {}
+    user_stats[user_id]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с характером ----------
+# ---------- Текстовый чат с выбором стиля ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
@@ -1283,7 +1336,6 @@ async def smart_chat(message: Message, state: FSMContext):
 
     if user_id not in user_context:
         user_context[user_id] = deque(maxlen=5)
-    # Сохраняем в историю с ключом "text" для Yandex (но внутри кода мы всё равно преобразуем)
     user_context[user_id].append({"role": "user", "text": message.text})
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -1335,7 +1387,7 @@ async def smart_chat(message: Message, state: FSMContext):
 
     if any(p in message.text.lower() for p in ["что ты умеешь", "что умеешь"]):
         prompt = loc["what_prompt"]
-        reply = await ask_ari(prompt)
+        reply = await ask_ari(user_id, prompt)
         await message.answer(reply)
         return
 
