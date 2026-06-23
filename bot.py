@@ -33,6 +33,25 @@ VOICE_ENABLED = os.getenv("VOICE_ENABLED", "True").lower() == "true"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ---------- Инициализация бота и диспетчера (ДО всех обработчиков) ----------
+bot = Bot(token=TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+# Множество пользователей для рассылки
+ALL_USERS_FILE = "all_users.json"
+all_users = set()
+if os.path.exists(ALL_USERS_FILE):
+    try:
+        with open(ALL_USERS_FILE, "r") as f:
+            all_users = set(json.load(f))
+    except:
+        pass
+
+def save_all_users():
+    with open(ALL_USERS_FILE, "w") as f:
+        json.dump(list(all_users), f)
+
 # ---------- Состояния ----------
 class PhotoStates(StatesGroup):
     waiting_for_photo = State()
@@ -57,7 +76,6 @@ if os.path.exists(MEMORY_FILE):
     try:
         data = json.load(open(MEMORY_FILE, "r"))
         if isinstance(data, dict):
-            # Старые данные могли быть просто словарём, теперь храним два словаря
             user_memory = data.get("memory", {})
             user_personality = data.get("personality", {})
     except:
@@ -105,7 +123,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (усиленная) ----------
+# ---------- Локализация ----------
 LOCALE = {
     "ru": {
         "start": "🦊 Ой, привет-привет! Это я, Ари — твой личный кибер-лисий объектив, который видит мир сочнее, чем свежая плёнка! 📸✨ Давай уже тащи сюда свои фоточки, я разберу их по пикселям и добавлю щепотку магии. Или просто поболтаем — я та ещё болтушка 😉",
@@ -207,6 +225,7 @@ LOCALE = {
         "lightroom_instruction": "🦊 Чтобы установить пресет в Lightroom, открой вкладку Develop, нажми правой кнопкой по Presets → Import. Выбери мой .xmp файл!",
         "modest_on": "🦊 Хорошо, я приглушу свои искорки. Теперь буду посдержаннее и спокойнее. Если захочешь вернуть прежнюю меня — просто скажи /wild.",
         "wild_on": "🦊 Ура! Я снова в своей тарелке! Готова флиртовать, шутить и быть самой собой. Спасибо, что вернул мне крылья!",
+        "cancel": "❌ Действие отменено. Жду новую фотку 📸",
     }
 }
 
@@ -288,7 +307,7 @@ def get_chat_prompt(user_id: str) -> str:
     """Возвращает нужный системный промпт в зависимости от стиля пользователя."""
     return CHAT_PROMPT_WILD if user_personality.get(user_id, "wild") == "wild" else CHAT_PROMPT_MODEST
 
-# ---------- Клавиатуры (без изменений) ----------
+# ---------- Клавиатуры ----------
 def get_main_menu_keyboard(lang="ru"):
     loc = LOCALE.get(lang, LOCALE["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -1421,7 +1440,7 @@ async def save_last_photo(message: Message):
 async def handle_document(message: Message, state: FSMContext):
     await message.answer(LOCALE["ru"]["document_error"])
 
-# ---------- Inline-режим 2.0 ----------
+# ---------- Inline-режим ----------
 @dp.inline_query()
 async def inline_query_handler(inline_query: InlineQuery):
     query = inline_query.query.strip().lower()
@@ -1461,6 +1480,7 @@ async def lifespan(app: FastAPI):
     await bot.session.close()
     save_stats()
     save_memory()
+    save_all_users()
 
 app = FastAPI(lifespan=lifespan)
 
