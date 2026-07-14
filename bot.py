@@ -114,7 +114,6 @@ def save_stats():
     with open(STATS_FILE, "w") as f:
         json.dump(user_stats, f)
 
-# Мини-уроки
 LESSONS = [
     {
         "title": "Основы композиции",
@@ -128,7 +127,7 @@ LESSONS = [
     }
 ]
 
-# ---------- Локализация (Новый образ Ари) ----------
+# ---------- Локализация (Нетраннер Ари) ----------
 LOCALE = {
     "ru": {
         "start": "🦊 *голос из динамика* Эй, чистота! Это Ари… ну, та самая лиса-нетраннер, что разнесла башню КорпСо в прошлом месяце. Я теперь в этом бетонном улье, среди неона и хрома. Скидывай свои фоточки — я их просканирую лучше любого корпо-софта. Или просто поболтай со мной, если не ссышь. Я кусаюсь, но тебе понравится 😉",
@@ -1541,6 +1540,11 @@ async def voice_handler(message: Message, state: FSMContext):
         await message.answer(loc["voice_analysis_request"])
         return
     reply = await ask_ari_with_context(user_id, text)
+    # Сохраняем контекст
+    if user_id not in user_context:
+        user_context[user_id] = deque(maxlen=5)
+    user_context[user_id].append({"role": "user", "text": text})
+    user_context[user_id].append({"role": "assistant", "text": reply})
     corrected = fix_ari_pronunciation(reply)
     voice = await synthesize_speech(corrected, lang_code, emotion)
     if voice:
@@ -1550,7 +1554,7 @@ async def voice_handler(message: Message, state: FSMContext):
     user_stats[user_id]["voice_used"] = True
     save_stats()
 
-# ---------- Текстовый чат с выбором стиля ----------
+# ---------- Текстовый чат (исправлено дублирование контекста) ----------
 @dp.message(F.text & ~F.text.startswith("/"))
 async def smart_chat(message: Message, state: FSMContext):
     if not CHAT_ENABLED: return
@@ -1582,9 +1586,6 @@ async def smart_chat(message: Message, state: FSMContext):
         await message.answer("🦊 Какой стиль тебе нравится? Напиши, например: «люблю Kodak Portra».")
         return
 
-    if user_id not in user_context:
-        user_context[user_id] = deque(maxlen=5)
-    user_context[user_id].append({"role": "user", "text": message.text})
     data = await state.get_data()
     lang = data.get("lang", "ru")
     loc = LOCALE[lang]
@@ -1612,6 +1613,10 @@ async def smart_chat(message: Message, state: FSMContext):
         await bot.send_chat_action(message.chat.id, "typing")
         await asyncio.sleep(random.uniform(0.5, 2))
         reply = await ask_ari_with_context(user_id, message.text)
+        # Сохраняем контекст
+        if user_id not in user_context:
+            user_context[user_id] = deque(maxlen=5)
+        user_context[user_id].append({"role": "user", "text": message.text})
         user_context[user_id].append({"role": "assistant", "text": reply})
         name = mem.get("name")
         if name:
@@ -1642,6 +1647,9 @@ async def smart_chat(message: Message, state: FSMContext):
     await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(random.uniform(0.5, 2))
     reply = await ask_ari_with_context(user_id, message.text)
+    if user_id not in user_context:
+        user_context[user_id] = deque(maxlen=5)
+    user_context[user_id].append({"role": "user", "text": message.text})
     user_context[user_id].append({"role": "assistant", "text": reply})
     name = mem.get("name")
     if name:
